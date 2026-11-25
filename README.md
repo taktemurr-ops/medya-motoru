@@ -58,10 +58,13 @@ web'de bu araç yalnızca elle bulanıklaştırma sunar.
 | Araç | Ne yapar | Platform |
 | --- | --- | --- |
 | Video oynatıcı | Oynatma listesi (sürükle-sırala), kaldığı yerden devam, 0,25–3× hız, tekrar (tek/tümü), karıştırma, A-B tekrar, çift dokunma ±10 sn, SRT/VTT altyazı (±0,5 sn kaydırma), sığdır/doldur/uzat, kontrol kilidi, uyku zamanlayıcısı, yatay görünüm | Android, iOS (video_player); web'de seçilen dosya bellekten (blob) oynatılır, liste oturumluk |
-| Gizli albüm | Parolalı, şifreli kasa: PBKDF2-HMAC-SHA256 (120 000 yineleme) ile türetilen anahtar rastgele bir veri anahtarını sarar; her dosya, küçük resmi ve dizin (dosya adları) AES-256-GCM ile şifrelenir (`cryptography`, saf Dart, ayrı isolate). Arka plana geçince kilit, yanlış parolada artan bekleme, parola değişimi (yeniden şifreleme gerekmez), tümünü silme. Arka kapı yoktur | Android, iOS (web'de dosya sistemi yok) |
-| Ekran kaydedici | MediaProjection + MediaRecorder (H.264/AAC MP4), ön plan hizmeti (`foregroundServiceType="mediaProjection"`, bildirimde Durdur), çözünürlük/kare hızı/kalite, geri sayım, duraklat/sürdür (Android 7+), isteğe bağlı mikrofon; kayıt listesi, galeriye kaydetme, paylaşma | Android. iOS: uygulamalar ReplayKit ile yalnız kendi ekranlarını kaydedebilir; sistem geneli için ayrı bir Broadcast Upload Extension (ayrı hedef, App Group) gerekir, bu yüzden araç Denetim Merkezi'ndeki yerleşik Ekran Kaydı'nı adım adım anlatır |
+| Gizli albüm | Parolalı, şifreli kasa: PBKDF2-HMAC-SHA256 (120 000 yineleme) ile türetilen anahtar rastgele bir veri anahtarını sarar; her dosya, küçük resmi ve dizin (dosya adları) AES-256-GCM ile şifrelenir (`cryptography`, saf Dart, ayrı isolate). Arka plana geçince kilit, yanlış parolada artan bekleme, parola değişimi (yeniden şifreleme gerekmez), tümünü silme. İsteğe bağlı biyometrik açma (`local_auth`): veri anahtarı, `flutter_secure_storage` ile Android Keystore / iOS Anahtar Zinciri'nde (yalnız bu cihaz) tutulan rastgele 256 bit bir sırla sarılır (`bio.bin`); parola asıl anahtar olarak kalır, kapatınca sır ve sarılı anahtar silinir. Arka kapı yoktur | Android, iOS (web'de dosya sistemi yok) |
+| Ekran kaydedici | MediaProjection + MediaRecorder (H.264/AAC MP4), ön plan hizmeti (`foregroundServiceType="mediaProjection"`, bildirimde Durdur), çözünürlük/kare hızı/kalite, geri sayım, duraklat/sürdür (Android 7+), isteğe bağlı mikrofon ve uygulama sesi (Android 10+: AudioPlaybackCapture + mikrofon karışımı, MediaCodec + MediaMuxer); kayıt listesi, galeriye kaydetme, paylaşma | Android. iOS: uygulamalar ReplayKit ile yalnız kendi ekranlarını kaydedebilir; sistem geneli için ayrı bir Broadcast Upload Extension (ayrı hedef, App Group) gerekir, bu yüzden araç Denetim Merkezi'ndeki yerleşik Ekran Kaydı'nı adım adım anlatır |
 
-Ekran kaydında diğer uygulamaların iç sesi (AudioPlaybackCapture) kaydedilmez; yalnız mikrofon.
+Uygulama sesi (Android 10+) yalnız ses yakalamaya izin veren uygulamalardan alınır (USAGE_MEDIA/GAME/UNKNOWN);
+`allowAudioPlaybackCapture=false` diyen uygulamalar, aramalar ve korumalı içerik kayıtta sessiz kalır
+(hiç ses gelmezse kullanıcıya bildirilir). Android 9 ve öncesinde ya da yakalayıcı kurulamazsa kayıt
+eski yoldan (MediaRecorder, isteğe bağlı mikrofon) sürer ve bu söylenir.
 
 ## İzinler
 
@@ -70,8 +73,11 @@ Ekran kaydında diğer uygulamaların iç sesi (AudioPlaybackCapture) kaydedilme
   yapmaz, bu yüzden `READ_MEDIA_AUDIO` gerekmez.
 - Kamera: filtreli kamera ve zaman atlamalı video. Mikrofon: ses değiştirici, ses
   düzenleyici, gürültü azaltma ve podcast. İzin istenmeden önce 33 dilde açıklama gösterilir.
-- Ekran kaydı: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `POST_NOTIFICATIONS`
+- Ekran kaydı: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `FOREGROUND_SERVICE_MICROPHONE`
+  (ses kaydı sürerken; uygulama sesi de `RECORD_AUDIO` ister), `POST_NOTIFICATIONS`
   (bildirimdeki Durdur düğmesi için, isteğe bağlı) ve her kayıtta sistemin MediaProjection onayı.
+- Gizli albüm biyometrik açma: `USE_BIOMETRIC` (local_auth), iOS `NSFaceIDUsageDescription`
+  (merkez uygulamada 33 dilde). Android'de MainActivity `FlutterFragmentActivity` olmalıdır.
 - Zil sesi `WRITE_SETTINGS` istemez: dosya Ringtones klasörüne eklenir ve sistem ses
   ayarları açılır.
 

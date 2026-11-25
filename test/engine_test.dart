@@ -11,6 +11,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
 import 'package:medya_motoru/medya_motoru.dart';
 import 'package:medya_motoru/src/platform/files.dart';
+import 'package:medya_motoru/src/tx.dart';
 import 'package:studio_core/app/services/ads.dart';
 import 'package:studio_core/app/services/purchases.dart';
 import 'package:studio_core/apps/apps.dart';
@@ -438,6 +439,55 @@ void main() {
       expect(lockoutFor(5), const Duration(seconds: 30));
       expect(lockoutFor(10), const Duration(seconds: 60));
       expect(lockoutFor(100), const Duration(seconds: 900));
+    });
+
+    test('kasa: biyometrik açma anahtarı sır ile sarılır, parola asıl kalır', () async {
+      final (h, key) = await createVault('1234', iterations: 1000);
+      expect(await checkVaultKey(h, key), isTrue);
+      expect(await checkVaultKey(h, Uint8List(32)), isFalse);
+      final secret = newBioSecret();
+      expect(secret.length, 32);
+      expect(newBioSecret(), isNot(secret));
+      final wrapped = await wrapBioKey(secret, key);
+      expect(wrapped.length, 32 + 28);
+      expect(await unwrapBioKey(h, secret, wrapped), key);
+      // Yanlış sır, bozuk veri ya da başka kasa: açılmaz.
+      expect(await unwrapBioKey(h, newBioSecret(), wrapped), isNull);
+      final bad = Uint8List.fromList(wrapped)..[20] ^= 1;
+      expect(await unwrapBioKey(h, secret, bad), isNull);
+      final (other, _) = await createVault('1234', iterations: 1000);
+      expect(await unwrapBioKey(other, secret, wrapped), isNull);
+      // Parola değişince veri anahtarı aynı kalır: biyometrik açma da, yeni parola da çalışır.
+      final h2 = await rewrapVault(h, key, 'yeni-parola');
+      expect(await unwrapBioKey(h2, secret, wrapped), key);
+      expect(await unlockVault(h2, 'yeni-parola'), key);
+    });
+
+    test('ekran kaydı: uygulama sesi kipi, uyarılar ve karıştırma', () {
+      ScreenAudio m({bool app = false, bool mic = false, bool sup = true, bool perm = true}) =>
+          screenAudioMode(app: app, mic: mic, appSupported: sup, permission: perm);
+      expect(m(), ScreenAudio.none);
+      expect(m(mic: true), ScreenAudio.mic);
+      expect(m(app: true), ScreenAudio.app);
+      expect(m(app: true, mic: true), ScreenAudio.appAndMic);
+      expect(m(app: true, mic: true, sup: false), ScreenAudio.mic);
+      expect(m(app: true, sup: false), ScreenAudio.none);
+      expect(m(app: true, mic: true, perm: false), ScreenAudio.none);
+      for (final w in ['internal_unavailable', 'internal_silent', 'internal_old', 'internal_perm']) {
+        final k = screenAudioWarningKey(w);
+        expect(k, isNotNull, reason: w);
+        expect(kMedyaL[k]!.length, 33, reason: k);
+        expect(kMedyaL[k]!.every((x) => x.trim().isNotEmpty), isTrue, reason: k);
+      }
+      expect(screenAudioWarningKey(null), isNull);
+      expect(screenAudioWarningKey('x'), isNull);
+      for (final k in ['app_audio', 'app_audio_note', 'bio_unlock', 'bio_reason', 'bio_enabled', 'bio_failed', 'bio_note']) {
+        expect(kMedyaL[k]!.length, 33, reason: k);
+      }
+      final mixed = mixPcm16(Int16List.fromList([100, -100, 32000, -32000]), Int16List.fromList([50, 2000]), 2);
+      expect(mixed, [150, -50, 32767, -30000]);
+      expect(mixPcm16(null, Int16List.fromList([7]), 1), [7, 7]);
+      expect(mixPcm16(Int16List.fromList([1, 2]), null, 1), [1, 2]);
     });
 
     test('ekran kaydı boyutu, bit hızı, dosya adı', () {

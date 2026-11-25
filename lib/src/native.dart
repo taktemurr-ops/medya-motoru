@@ -120,6 +120,7 @@ class MedyaNative {
     required int fps,
     required int bitrate,
     required bool audio,
+    bool appAudio = false,
     int delayMs = 0,
   }) =>
       _ok('screenRecordStart', {
@@ -130,6 +131,7 @@ class MedyaNative {
         'fps': fps,
         'bitrate': bitrate,
         'audio': audio,
+        'internal': appAudio,
         'delayMs': delayMs,
       });
 
@@ -137,8 +139,13 @@ class MedyaNative {
 
   static Future<bool> screenRecordPause(bool pause) => _ok('screenRecordPause', {'pause': pause});
 
-  /// Kayıt durumu: kayıtta mı, duraklatıldı mı, geçen süre, dosya, hata.
-  static Future<({bool recording, bool paused, bool waiting, int elapsedMs, String? path, String? error})> screenRecordStatus() async {
+  /// Uygulama sesi kaydı (AudioPlaybackCapture, Android 10+) destekleniyor mu?
+  static Future<bool> screenAppAudioSupported() => _ok('screenAudioSupport', const {});
+
+  /// Kayıt durumu: kayıtta mı, duraklatıldı mı, geçen süre, dosya, hata,
+  /// ses uyarısı (internal_unavailable / internal_silent / internal_old / internal_perm).
+  static Future<({bool recording, bool paused, bool waiting, int elapsedMs, String? path, String? error, String? warning})>
+      screenRecordStatus() async {
     final m = await _call<Map<Object?, Object?>>('screenRecordStatus', const {});
     return (
       recording: m?['recording'] == true,
@@ -147,6 +154,7 @@ class MedyaNative {
       elapsedMs: (m?['elapsedMs'] as num?)?.toInt() ?? 0,
       path: m?['path'] as String?,
       error: m?['error'] as String?,
+      warning: m?['warning'] as String?,
     );
   }
 }

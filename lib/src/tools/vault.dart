@@ -4,6 +4,12 @@
 /// plana geçince kasa kilitlenir; art arda yanlış parolada bekleme süresi
 /// artar. Parola unutulursa içerik kurtarılamaz (arka kapı yoktur). Hiçbir şey
 /// internete gönderilmez. Web'de dosya sistemi olmadığından yoktur.
+///
+/// İsteğe bağlı biyometrik açma (local_auth): veri anahtarı, platformun güvenli
+/// deposunda (Android Keystore / iOS Anahtar Zinciri, yalnız bu cihaz) tutulan
+/// rastgele bir sırla sarılır (bio.bin). Parola asıl anahtar olarak kalır;
+/// biyometrik açma yalnız bir kısayoldur ve kapatılınca sır ile sarılı anahtar
+/// silinir.
 library;
 
 import 'dart:async';
@@ -12,6 +18,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:studio_core/apps/apps.dart';
 
 import '../common.dart';
@@ -66,6 +74,16 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
   DateTime? _waitUntil;
   Timer? _waitTimer;
 
+  // Biyometrik açma.
+  static const String _bioSecretKey = 'medya_gizli_album_bio_v1';
+  static const FlutterSecureStorage _secure = FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.unlocked_this_device),
+  );
+  final LocalAuthentication _auth = LocalAuthentication();
+  bool _bioAvailable = false;
+  bool _bioOn = false;
+  bool _authBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -86,6 +104,8 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
   /// Uygulama arka plana geçince kasayı kilitler.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Biyometrik pencere açıkken bazı cihazlar uygulamayı duraklatır; kilitleme.
+    if (_authBusy) return;
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) _lock();
   }
 
@@ -106,12 +126,117 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
     _fails = await t.store.readInt('fails');
     final until = await t.store.readInt('wait_until');
     if (until > DateTime.now().millisecondsSinceEpoch) _waitUntil = DateTime.fromMillisecondsSinceEpoch(until);
+    _bioOn = await t.store.readBool('bio');
+    try {
+      _bioAvailable = await _auth.isDeviceSupported() && await _auth.canCheckBiometrics;
+    } catch (_) {
+      _bioAvailable = false;
+    }
     if (!mounted) return;
     setState(() {
       _header = h == null ? null : utf8.decode(h);
       _stage = _header == null || VaultHeader.fromJson(_header!) == null ? _Stage.create : _Stage.locked;
     });
     _startWaitTimer();
+    if (_stage == _Stage.locked && _bioOn && _bioAvailable) unawaited(_unlockBio());
+  }
+
+  // ------------------------------------------------------------ biyometrik
+
+  Future<bool> _bioAuth() async {
+    _authBusy = true;
+    try {
+      return await _auth.authenticate(localizedReason: L(t, 'bio_reason'), biometricOnly: true);
+    } catch (_) {
+      return false;
+    } finally {
+      _authBusy = false;
+    }
+  }
+
+  /// Biyometrik doğrulamadan sonra sarılı anahtarı güvenli depodaki sırla açar.
+  Future<void> _unlockBio() async {
+    final header = _header == null ? null : VaultHeader.fromJson(_header!);
+    if (header == null || _busy || _stage != _Stage.locked) return;
+    if (!await _bioAuth() || !mounted) return;
+    setState(() {
+      _busy = true;
+      _msg = null;
+    });
+    Uint8List? key;
+    try {
+      final secret = await _secure.read(key: _bioSecretKey);
+      final wrapped = await MediaFiles.read(_f('bio.bin'));
+      if (secret != null && wrapped != null) key = await unwrapBioKey(header, base64Decode(secret), wrapped);
+    } catch (_) {
+      key = null;
+    }
+    if (!mounted) return;
+    if (key == null) {
+      // Sır kaybolduysa ya da bozulduysa biyometrik açma kapatılır; parola geçerli.
+      await _bioDisable();
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _msg = L(t, 'bio_failed');
+        });
+      }
+      return;
+    }
+    _fails = 0;
+    await t.store.write('fails', '0');
+    _waitUntil = null;
+    await t.store.write('wait_until', '0');
+    _key = key;
+    _p1.clear();
+    await _loadIndex();
+    if (mounted) {
+      setState(() {
+        _busy = false;
+        _stage = _Stage.open;
+      });
+    }
+  }
+
+  Future<void> _bioDisable() async {
+    try {
+      await _secure.delete(key: _bioSecretKey);
+    } catch (_) {}
+    if (_dir != null) await MediaFiles.delete(_f('bio.bin'));
+    await t.store.writeBool('bio', false);
+    _bioOn = false;
+  }
+
+  Future<void> _setBio(bool on) async {
+    if (!on) {
+      await _bioDisable();
+      if (mounted) setState(() {});
+      return;
+    }
+    if (_key == null) return;
+    if (!await _bioAuth()) {
+      if (mounted) snack(context, L(t, 'bio_failed'));
+      return;
+    }
+    final key = _key;
+    if (key == null || !mounted) return;
+    var ok = false;
+    try {
+      final secret = newBioSecret();
+      final wrapped = await wrapBioKey(secret, key);
+      if (await MediaFiles.write(_f('bio.bin'), wrapped)) {
+        await _secure.write(key: _bioSecretKey, value: base64Encode(secret));
+        await t.store.writeBool('bio', true);
+        _bioOn = true;
+        ok = true;
+      }
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok) await _bioDisable();
+    if (!mounted) return;
+    setState(() {});
+    snack(context, ok ? L(t, 'bio_enabled') : L(t, 'failed'));
   }
 
   void _startWaitTimer() {
@@ -364,6 +489,7 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
     }
     await MediaFiles.delete(_f('index.bin'));
     await MediaFiles.delete(_f('header.json'));
+    await _bioDisable();
     await t.store.write('fails', '0');
     _key = null;
     _header = null;
@@ -418,6 +544,14 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
             BusyLine(L(t, 'processing'))
           else
             AppButton(label: L(t, 'unlock'), icon: Icons.lock_open_rounded, onPressed: _waitUntil == null ? _unlock : null),
+          if (!_busy && _bioOn && _bioAvailable)
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: _unlockBio,
+                icon: const Icon(Icons.fingerprint_rounded),
+                label: Text(L(t, 'bio_unlock')),
+              ),
+            ),
           Center(child: TextButton(onPressed: _wipe, child: Text(L(t, 'delete_vault')))),
         ]);
       case _Stage.open:
@@ -428,9 +562,14 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
               OutlinedButton.icon(onPressed: _busy ? null : _addVideo, icon: const Icon(Icons.video_call_rounded), label: Text(L(t, 'pick_video'))),
             OutlinedButton.icon(onPressed: _lock, icon: const Icon(Icons.lock_rounded), label: Text(L(t, 'lock'))),
             PopupMenuButton<int>(
-              onSelected: (i) => i == 0 ? _changePassword() : _wipe(),
+              onSelected: (i) => switch (i) {
+                0 => _changePassword(),
+                2 => _setBio(!_bioOn),
+                _ => _wipe(),
+              },
               itemBuilder: (_) => [
                 PopupMenuItem(value: 0, child: Text(L(t, 'change_password'))),
+                if (_bioAvailable) CheckedPopupMenuItem(value: 2, checked: _bioOn, child: Text(L(t, 'bio_unlock'))),
                 PopupMenuItem(value: 1, child: Text(L(t, 'delete_vault'))),
               ],
             ),
@@ -467,6 +606,7 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
               ),
             ),
           AppInfoCard(L(t, 'originals_note'), icon: Icons.info_outline_rounded),
+          if (_bioOn) AppInfoCard(L(t, 'bio_note'), icon: Icons.fingerprint_rounded),
         ]);
     }
   }

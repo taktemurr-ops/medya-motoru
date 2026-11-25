@@ -29,6 +29,11 @@ import java.util.Map;
  * Kullanıcının sistem penceresinde verdiği izinle (MediaProjection) ekranı
  * MediaRecorder'a (H.264 + isteğe bağlı mikrofon AAC) yönlendirir. Bildirimde
  * "Durdur" düğmesi vardır. Dosya, Dart tarafının verdiği uygulama klasörüne yazılır.
+ *
+ * "Uygulama sesi" açıksa (Android 10+, mikrofon izniyle) kayıt
+ * {@link CodecScreenRecorder} ile yapılır (AudioPlaybackCapture + isteğe bağlı
+ * mikrofon, MediaCodec + MediaMuxer). Kurulamazsa eski yola (MediaRecorder)
+ * düşülür ve uyarı bildirilir.
  */
 public class ScreenRecordService extends Service {
   static final String ACTION_START = "com.gamestudio100.medya_motoru.SCREEN_START";
@@ -38,13 +43,15 @@ public class ScreenRecordService extends Service {
 
   private static volatile boolean recording, paused, waiting;
   private static volatile long startedAt, pausedAt, pausedTotal;
-  private static volatile String path, error;
+  private static volatile String path, error, warning;
+  private static volatile boolean appAudio;
   private static ScreenRecordService instance;
 
   private final Handler handler = new Handler(Looper.getMainLooper());
   private MediaProjection projection;
   private VirtualDisplay display;
   private MediaRecorder recorder;
+  private CodecScreenRecorder codec;
 
   static void start(Context c, int resultCode, Intent data, Map<String, Object> args) {
     Intent i = new Intent(c, ScreenRecordService.class).setAction(ACTION_START);
@@ -57,8 +64,11 @@ public class ScreenRecordService extends Service {
     i.putExtra("fps", intOf(args.get("fps"), 30));
     i.putExtra("bitrate", intOf(args.get("bitrate"), 6000000));
     i.putExtra("audio", Boolean.TRUE.equals(args.get("audio")));
+    i.putExtra("internal", Boolean.TRUE.equals(args.get("internal")));
     i.putExtra("delayMs", intOf(args.get("delayMs"), 0));
     error = null;
+    warning = null;
+    appAudio = false;
     waiting = true;
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       c.startForegroundService(i);
@@ -79,6 +89,18 @@ public class ScreenRecordService extends Service {
 
   static boolean pause(boolean p) {
     ScreenRecordService s = instance;
+    if (s != null && s.codec != null && recording) {
+      if (p && !paused) {
+        s.codec.pause(true);
+        paused = true;
+        pausedAt = SystemClock.elapsedRealtime();
+      } else if (!p && paused) {
+        s.codec.pause(false);
+        paused = false;
+        pausedTotal += SystemClock.elapsedRealtime() - pausedAt;
+      }
+      return true;
+    }
     if (s == null || s.recorder == null || !recording || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false;
     try {
       if (p && !paused) {
@@ -106,7 +128,14 @@ public class ScreenRecordService extends Service {
     m.put("elapsedMs", Math.max(0, el));
     m.put("path", path);
     m.put("error", error);
+    m.put("warning", warning);
+    m.put("appAudio", appAudio);
     return m;
+  }
+
+  /** Uygulama sesi kaydı (AudioPlaybackCapture) bu sürümde var mı? */
+  static boolean appAudioSupported() {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
   }
 
   private static int intOf(Object o, int fallback) {
@@ -147,9 +176,23 @@ public class ScreenRecordService extends Service {
     }
     instance = this;
     Notification n = notification();
+    // Android 11+: ön plan hizmetinde ses kaydı için "microphone" türü gerekir
+    // (uygulama arka plandayken mikrofon/uygulama sesi sessiz kalmasın).
+    boolean wantsAudio = intent.getBooleanExtra("audio", false) || intent.getBooleanExtra("internal", false);
+    boolean micType = wantsAudio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
     try {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+        if (micType) {
+          try {
+            startForeground(NOTIFICATION_ID, n, type | ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+          } catch (RuntimeException e) {
+            startForeground(NOTIFICATION_ID, n, type);
+          }
+        } else {
+          startForeground(NOTIFICATION_ID, n, type);
+        }
       } else {
         startForeground(NOTIFICATION_ID, n);
       }
@@ -204,8 +247,18 @@ public class ScreenRecordService extends Service {
     String out = a.getStringExtra("output");
     int w = a.getIntExtra("width", 720), h = a.getIntExtra("height", 1280);
     int fps = a.getIntExtra("fps", 30), bitrate = a.getIntExtra("bitrate", 6000000), dpi = a.getIntExtra("dpi", 320);
-    boolean audio = a.getBooleanExtra("audio", false)
-        && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    boolean permitted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+    boolean audio = a.getBooleanExtra("audio", false) && permitted;
+    if (a.getBooleanExtra("internal", false)) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        warning = "internal_old";
+      } else if (!permitted) {
+        warning = "internal_perm";
+      } else if (beginCodec(out, w, h, fps, bitrate, dpi, audio)) {
+        return;
+      }
+      // Kurulamadı: eski yol (MediaRecorder, isteğe bağlı mikrofon).
+    }
     try {
       recorder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? new MediaRecorder(this) : new MediaRecorder();
       if (audio) recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
@@ -241,12 +294,42 @@ public class ScreenRecordService extends Service {
     }
   }
 
+  /** Uygulama sesli kayıt (API 29+). Başarısızsa false; çağıran eski yola döner. */
+  private boolean beginCodec(String out, int w, int h, int fps, int bitrate, int dpi, boolean mic) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false;
+    CodecScreenRecorder c = new CodecScreenRecorder(projection, out, w, h, fps, bitrate, dpi, mic);
+    try {
+      c.start(handler);
+    } catch (Exception e) {
+      c.stop();
+      warning = "internal_unavailable";
+      return false;
+    }
+    codec = c;
+    appAudio = c.appAudioActive();
+    if (c.warning != null) warning = c.warning;
+    path = out;
+    startedAt = SystemClock.elapsedRealtime();
+    pausedTotal = 0;
+    paused = false;
+    recording = true;
+    waiting = false;
+    return true;
+  }
+
   private void finish() {
     boolean was = recording;
     recording = false;
     paused = false;
     waiting = false;
     handler.removeCallbacksAndMessages(null);
+    if (codec != null) {
+      CodecScreenRecorder c = codec;
+      codec = null;
+      String r = c.stop();
+      if ("empty".equals(r)) error = "empty";
+      if (c.warning != null) warning = c.warning;
+    }
     if (recorder != null) {
       try {
         if (was) recorder.stop();

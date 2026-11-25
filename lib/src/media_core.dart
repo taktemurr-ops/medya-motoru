@@ -228,6 +228,35 @@ Future<VaultHeader> rewrapVault(VaultHeader h, Uint8List dataKey, String newPass
   return VaultHeader(h.version, h.iterations, salt, await sealBytes(pk, dataKey), h.verifier);
 }
 
+/// Veri anahtarının bu kasaya ait olduğunu doğrulayıcıyla denetler.
+Future<bool> checkVaultKey(VaultHeader h, List<int> dataKey) async {
+  if (dataKey.length != 32) return false;
+  final check = await openBytes(dataKey, h.verifier);
+  return check != null && utf8.decode(check, allowMalformed: true) == _verifierText;
+}
+
+// ------------------------------------------------------------ biyometrik açma
+//
+// Parola asıl anahtardır. Biyometrik açma açılınca rastgele 256 bit bir sır
+// üretilir ve platformun güvenli deposunda (Android Keystore ile şifreli,
+// iOS Anahtar Zinciri "yalnız bu cihaz") tutulur; veri anahtarı bu sırla
+// AES-256-GCM ile sarılıp kasa klasörüne yazılır (bio.bin). Sır ya da sarılı
+// anahtar tek başına işe yaramaz; kapatınca ikisi de silinir.
+
+/// Biyometrik sır (32 bayt, rastgele).
+Uint8List newBioSecret() => _rand(32);
+
+/// Veri anahtarını biyometrik sırla sarar.
+Future<Uint8List> wrapBioKey(List<int> secret, List<int> dataKey) => sealBytes(secret, dataKey);
+
+/// Sarılı anahtarı açar ve kasa doğrulayıcısıyla denetler; olmazsa null.
+Future<Uint8List?> unwrapBioKey(VaultHeader h, List<int> secret, List<int> wrapped) async {
+  if (secret.length != 32) return null;
+  final k = await openBytes(secret, wrapped);
+  if (k == null || !await checkVaultKey(h, k)) return null;
+  return k;
+}
+
 /// Kasadaki bir öğe (dizin şifreli saklanır; dosya adları görünmez).
 class VaultItem {
   final String id;
@@ -297,4 +326,41 @@ int recordBitrate(int w, int h, int fps, int quality) {
 String recordFileName(DateTime t) {
   String two(int v) => v.toString().padLeft(2, '0');
   return 'ekran_${t.year}-${two(t.month)}-${two(t.day)}_${two(t.hour)}-${two(t.minute)}-${two(t.second)}.mp4';
+}
+
+/// Ekran kaydında ses kaynağı.
+enum ScreenAudio { none, mic, app, appAndMic }
+
+/// Seçimlere göre kayıt sesi: uygulama sesi Android 10+ (API 29) ve mikrofon
+/// izni ister (Android, AudioPlaybackCapture için de RECORD_AUDIO arar).
+ScreenAudio screenAudioMode({required bool app, required bool mic, required bool appSupported, required bool permission}) {
+  if (!permission) return ScreenAudio.none;
+  final a = app && appSupported;
+  if (a && mic) return ScreenAudio.appAndMic;
+  if (a) return ScreenAudio.app;
+  return mic ? ScreenAudio.mic : ScreenAudio.none;
+}
+
+/// Yerel hizmetin bildirdiği ses uyarısı → metin anahtarı.
+String? screenAudioWarningKey(String? warning) => switch (warning) {
+      'internal_unavailable' => 'app_audio_failed',
+      'internal_silent' => 'app_audio_silent',
+      'internal_old' => 'app_audio_old',
+      'internal_perm' => 'app_audio_perm',
+      _ => null,
+    };
+
+/// 16 bit PCM karıştırma: uygulama sesi (stereo, LRLR…) + mikrofon (mono),
+/// taşmada kırpılır. Yerel kodla aynı kural (test için Dart karşılığı).
+Int16List mixPcm16(Int16List? stereo, Int16List? mono, int frames) {
+  final out = Int16List(frames * 2);
+  for (var i = 0; i < frames; i++) {
+    final m = mono == null || i >= mono.length ? 0 : mono[i];
+    for (var c = 0; c < 2; c++) {
+      final j = i * 2 + c;
+      final a = stereo == null || j >= stereo.length ? 0 : stereo[j];
+      out[j] = (a + m).clamp(-32768, 32767);
+    }
+  }
+  return out;
 }

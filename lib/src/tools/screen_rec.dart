@@ -1,5 +1,6 @@
 /// Ekran kaydedici (Android): MediaProjection + MediaRecorder ile ekranı
-/// MP4 olarak kaydeder; isteğe bağlı mikrofon sesi, çözünürlük, kare hızı,
+/// MP4 olarak kaydeder; isteğe bağlı mikrofon sesi ve uygulama sesi (Android 10+,
+/// AudioPlaybackCapture; mikrofonla karıştırılabilir), çözünürlük, kare hızı,
 /// kalite, geri sayım, duraklat/sürdür. Kayıt bir ön plan hizmetinde sürer;
 /// bildirimden durdurulabilir. Kayıtlar uygulama klasöründe tutulur; galeriye
 /// kaydedilir, paylaşılır, silinir. iOS'ta uygulamalar ReplayKit ile yalnız
@@ -32,6 +33,8 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
   ToolContext get t => widget.t;
   int _short = 720, _fps = 30, _quality = 1, _countdown = 3;
   bool _audio = false;
+  bool _appAudio = false;
+  bool _appAudioSupported = false;
   bool _recording = false, _paused = false, _waiting = false;
   int _elapsed = 0;
   String? _dir;
@@ -51,7 +54,9 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
       _quality = (m['quality'] as num?)?.toInt() ?? 1;
       _countdown = (m['countdown'] as num?)?.toInt() ?? 3;
       _audio = m['audio'] == true;
+      _appAudio = m['app_audio'] == true;
       if (_android) {
+        _appAudioSupported = await MedyaNative.screenAppAudioSupported();
         _dir = await MediaFiles.appDir('ekran_kayitlari');
         await _refresh();
         _poll = Timer.periodic(const Duration(milliseconds: 500), (_) => _status());
@@ -68,6 +73,7 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
 
   void _persist() => t.store.writeMap('screen', {
         'short': _short, 'fps': _fps, 'quality': _quality, 'countdown': _countdown, 'audio': _audio,
+        'app_audio': _appAudio,
       });
 
   Future<void> _refresh() async {
@@ -92,25 +98,33 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
     });
     if (stopped) {
       await _refresh();
-      if (mounted) snack(context, s.error == null ? L(t, 'rec_saved') : L(t, 'failed'));
+      if (!mounted) return;
+      final w = screenAudioWarningKey(s.warning);
+      final text = s.error == null ? L(t, 'rec_saved') : L(t, 'failed');
+      snack(context, w == null || s.error != null ? text : '$text. ${L(t, w)}');
     }
   }
 
   Future<void> _start() async {
     final d = _dir;
     if (d == null) return;
-    var audio = _audio;
-    if (audio) {
+    // Mikrofon ve uygulama sesi (AudioPlaybackCapture) aynı izni ister.
+    final wantApp = _appAudio && _appAudioSupported;
+    var permission = false;
+    if (_audio || wantApp) {
       final rec = AudioRecorder();
       try {
-        audio = await rec.hasPermission();
+        permission = await rec.hasPermission();
       } catch (_) {
-        audio = false;
+        permission = false;
       } finally {
         unawaited(rec.dispose());
       }
-      if (!audio && mounted) snack(context, L(t, 'mic_perm'));
+      if (!permission && mounted) snack(context, L(t, wantApp ? 'app_audio_perm' : 'mic_perm'));
     }
+    final mode = screenAudioMode(app: _appAudio, mic: _audio, appSupported: _appAudioSupported, permission: permission);
+    final audio = mode == ScreenAudio.mic || mode == ScreenAudio.appAndMic;
+    final appAudio = mode == ScreenAudio.app || mode == ScreenAudio.appAndMic;
     if (!mounted) return;
     final view = View.of(context);
     final px = view.physicalSize;
@@ -123,6 +137,7 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
       fps: _fps,
       bitrate: recordBitrate(size.w, size.h, _fps, _quality),
       audio: audio,
+      appAudio: appAudio,
       delayMs: _countdown * 1000,
     );
     if (!mounted) return;
@@ -244,6 +259,19 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
                 _persist();
               },
       ),
+      SwitchListTile(
+        title: Text(L(t, 'app_audio')),
+        subtitle: _appAudioSupported ? null : Text(L(t, 'app_audio_old')),
+        secondary: const Icon(Icons.speaker_rounded),
+        value: _appAudio && _appAudioSupported,
+        onChanged: _recording || !_appAudioSupported
+            ? null
+            : (b) {
+                setState(() => _appAudio = b);
+                _persist();
+              },
+      ),
+      if (_appAudio && _appAudioSupported) AppInfoCard(L(t, 'app_audio_note'), icon: Icons.volume_up_rounded),
       AppHeading(L(t, 'recordings'), icon: Icons.video_library_rounded),
       if (_files.isEmpty)
         Padding(padding: const EdgeInsets.all(16), child: Text(L(t, 'empty_list'), textAlign: TextAlign.center))

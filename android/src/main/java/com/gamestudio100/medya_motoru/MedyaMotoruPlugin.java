@@ -157,7 +157,7 @@ public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCal
       pendingScreen.success(false);
     }
     final Map<String, Object> args = new HashMap<>();
-    for (String k : new String[] {"output", "width", "height", "dpi", "fps", "bitrate", "audio", "delayMs"}) {
+    for (String k : new String[] {"output", "width", "height", "dpi", "fps", "bitrate", "audio", "internal", "delayMs"}) {
       args.put(k, call.argument(k));
     }
     // Android 13+: kayıt bildirimindeki "Durdur" düğmesi için bildirim izni (isteğe bağlı).
@@ -447,6 +447,10 @@ public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCal
         }
         case "screenRecordPause": {
           result.success(ScreenRecordService.pause(flag(call, "pause", true)));
+          break;
+        }
+        case "screenAudioSupport": {
+          result.success(ScreenRecordService.appAudioSupported());
           break;
         }
         case "screenRecordStatus": {

@@ -1,15 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Ekran kaydedici: kayıt, kullanıcının sistem penceresinde verdiği izinle
          (MediaProjection) bir ön plan hizmetinde sürer. Mikrofon (RECORD_AUDIO)
-         yalnız kullanıcı "Mikrofon sesi"ni açarsa, açıklamadan sonra istenir. -->
+         yalnız kullanıcı "Mikrofon sesi"ni ya da "Uygulama sesi"ni (Android 10+,
+         AudioPlaybackCapture de RECORD_AUDIO ister) açarsa, açıklamadan sonra
+         istenir. Ses kaydı sürerken hizmet "microphone" türünü de taşır
+         (Android 11+ arka planda sessiz kalmasın). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
         <service
             android:name="com.gamestudio100.medya_motoru.ScreenRecordService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:foregroundServiceType="mediaProjection|microphone" />
     </application>
 </manifest>
