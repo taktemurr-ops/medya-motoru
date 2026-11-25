@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Perakam Skrin</string>
+    <string name="medya_rec_running">Merakam skrin</string>
+    <string name="medya_rec_stop">Henti</string>
+</resources>

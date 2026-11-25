@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Grabador de pantalla</string>
+    <string name="medya_rec_running">Grabando la pantalla</string>
+    <string name="medya_rec_stop">Detener</string>
+</resources>

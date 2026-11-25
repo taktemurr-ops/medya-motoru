@@ -1,5 +1,6 @@
 package com.gamestudio100.medya_motoru;
 
+import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -9,6 +10,7 @@ import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
+import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -58,6 +60,9 @@ import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
+import io.flutter.plugin.common.PluginRegistry;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
@@ -71,7 +76,13 @@ import io.flutter.plugin.common.MethodChannel;
  * çalıştırılır.
  */
 @OptIn(markerClass = UnstableApi.class)
-public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCallHandler {
+public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCallHandler, ActivityAware,
+    PluginRegistry.ActivityResultListener {
+  private static final int REQ_SCREEN = 7302;
+  private Activity activity;
+  private ActivityPluginBinding activityBinding;
+  private MethodChannel.Result pendingScreen;
+  private Map<String, Object> pendingScreenArgs;
   private MethodChannel channel;
   private Context context;
   private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -88,6 +99,80 @@ public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCal
   @Override
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
     channel.setMethodCallHandler(null);
+  }
+
+  // ------------------------------------------------------------------ etkinlik (ekran kaydı izni)
+
+  @Override
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
+    activityBinding = binding;
+    binding.addActivityResultListener(this);
+  }
+
+  @Override
+  public void onDetachedFromActivityForConfigChanges() {
+    onDetachedFromActivity();
+  }
+
+  @Override
+  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+    onAttachedToActivity(binding);
+  }
+
+  @Override
+  public void onDetachedFromActivity() {
+    if (activityBinding != null) activityBinding.removeActivityResultListener(this);
+    activityBinding = null;
+    activity = null;
+  }
+
+  @Override
+  public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
+    if (requestCode != REQ_SCREEN) return false;
+    final MethodChannel.Result r = pendingScreen;
+    final Map<String, Object> args = pendingScreenArgs;
+    pendingScreen = null;
+    pendingScreenArgs = null;
+    if (r == null) return true;
+    if (resultCode == Activity.RESULT_OK && data != null && args != null) {
+      try {
+        ScreenRecordService.start(context, resultCode, data, args);
+        r.success(true);
+      } catch (RuntimeException e) {
+        r.error("screen", String.valueOf(e.getMessage()), null);
+      }
+    } else {
+      r.success(false);
+    }
+    return true;
+  }
+
+  private void screenRecordStart(MethodCall call, MethodChannel.Result result) {
+    if (activity == null) {
+      result.success(false);
+      return;
+    }
+    if (pendingScreen != null) {
+      pendingScreen.success(false);
+    }
+    final Map<String, Object> args = new HashMap<>();
+    for (String k : new String[] {"output", "width", "height", "dpi", "fps", "bitrate", "audio", "delayMs"}) {
+      args.put(k, call.argument(k));
+    }
+    // Android 13+: kayıt bildirimindeki "Durdur" düğmesi için bildirim izni (isteğe bağlı).
+    if (Build.VERSION.SDK_INT >= 33
+        && activity.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+      activity.requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, REQ_SCREEN + 1);
+    }
+    final MediaProjectionManager mpm = (MediaProjectionManager) context.getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+    if (mpm == null) {
+      result.success(false);
+      return;
+    }
+    pendingScreen = result;
+    pendingScreenArgs = args;
+    activity.startActivityForResult(mpm.createScreenCaptureIntent(), REQ_SCREEN);
   }
 
   // ------------------------------------------------------------------ yardımcılar
@@ -349,6 +434,23 @@ public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCal
           final long[] shape = new long[dims.size()];
           for (int i = 0; i < shape.length; i++) shape[i] = Long.parseLong(dims.get(i));
           background(result, () -> onnxRun(model, data, shape));
+          break;
+        }
+        case "screenRecordStart": {
+          screenRecordStart(call, result);
+          break;
+        }
+        case "screenRecordStop": {
+          ScreenRecordService.stop(context);
+          result.success(true);
+          break;
+        }
+        case "screenRecordPause": {
+          result.success(ScreenRecordService.pause(flag(call, "pause", true)));
+          break;
+        }
+        case "screenRecordStatus": {
+          result.success(ScreenRecordService.status());
           break;
         }
         case "openSoundSettings": {

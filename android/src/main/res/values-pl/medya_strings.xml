@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Nagrywarka ekranu</string>
+    <string name="medya_rec_running">Nagrywanie ekranu</string>
+    <string name="medya_rec_stop">Stop</string>
+</resources>

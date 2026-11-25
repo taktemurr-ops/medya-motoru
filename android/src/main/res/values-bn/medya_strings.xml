@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">স্ক্রিন রেকর্ডার</string>
+    <string name="medya_rec_running">পর্দা রেকর্ড হচ্ছে</string>
+    <string name="medya_rec_stop">থামুন</string>
+</resources>

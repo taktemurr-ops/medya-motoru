@@ -44,4 +44,22 @@ class MediaFiles {
   static Future<bool> exists(String path) async => false;
   static Stream<double> download(String url, String target) => const Stream<double>.empty();
   static VideoPlayerController? video(String path) => null;
+
+  /// Tarayıcıda seçilen videoyu bellekteki bir blob adresinden oynatır.
+  static Future<VideoPlayerController?> videoBytes(Uint8List bytes, String name) async {
+    try {
+      final lower = name.toLowerCase();
+      final mime = lower.endsWith('.webm')
+          ? 'video/webm'
+          : lower.endsWith('.ogv') || lower.endsWith('.ogg')
+              ? 'video/ogg'
+              : lower.endsWith('.mov')
+                  ? 'video/quicktime'
+                  : 'video/mp4';
+      final blob = web.Blob(<JSAny>[bytes.toJS].toJS, web.BlobPropertyBag(type: mime));
+      return VideoPlayerController.networkUrl(Uri.parse(web.URL.createObjectURL(blob)));
+    } catch (_) {
+      return null;
+    }
+  }
 }

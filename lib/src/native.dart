@@ -107,4 +107,46 @@ class MedyaNative {
   static Future<bool> saveRingtone(String path, String name) => _ok('saveRingtone', {'path': path, 'name': name});
 
   static Future<bool> openSoundSettings() => _ok('openSoundSettings', const {});
+
+  // ------------------------------------------------------------ ekran kaydı (Android)
+
+  /// Ekran kaydını başlatır: sistem izin penceresi (MediaProjection) açılır,
+  /// kullanıcı onaylarsa ön plan hizmeti [delayMs] sonra kayda başlar.
+  static Future<bool> screenRecordStart({
+    required String output,
+    required int width,
+    required int height,
+    required int dpi,
+    required int fps,
+    required int bitrate,
+    required bool audio,
+    int delayMs = 0,
+  }) =>
+      _ok('screenRecordStart', {
+        'output': output,
+        'width': width,
+        'height': height,
+        'dpi': dpi,
+        'fps': fps,
+        'bitrate': bitrate,
+        'audio': audio,
+        'delayMs': delayMs,
+      });
+
+  static Future<bool> screenRecordStop() => _ok('screenRecordStop', const {});
+
+  static Future<bool> screenRecordPause(bool pause) => _ok('screenRecordPause', {'pause': pause});
+
+  /// Kayıt durumu: kayıtta mı, duraklatıldı mı, geçen süre, dosya, hata.
+  static Future<({bool recording, bool paused, bool waiting, int elapsedMs, String? path, String? error})> screenRecordStatus() async {
+    final m = await _call<Map<Object?, Object?>>('screenRecordStatus', const {});
+    return (
+      recording: m?['recording'] == true,
+      paused: m?['paused'] == true,
+      waiting: m?['waiting'] == true,
+      elapsedMs: (m?['elapsedMs'] as num?)?.toInt() ?? 0,
+      path: m?['path'] as String?,
+      error: m?['error'] as String?,
+    );
+  }
 }

@@ -1,4 +1,4 @@
-/// Üretilmiş dosya (proto/apps/medya/mkengine.py). Fotoğraf, Video ve Ses'in 42 aracı.
+/// Üretilmiş dosya (proto/apps/medya/mkengine.py). Fotoğraf, Video ve Ses'in 45 aracı.
 library;
 
 import 'package:flutter/material.dart';
@@ -9,6 +9,9 @@ import 'tools/audio.dart';
 import 'tools/design.dart';
 import 'tools/music.dart';
 import 'tools/photo.dart';
+import 'tools/player.dart';
+import 'tools/screen_rec.dart';
+import 'tools/vault.dart';
 import 'tools/video.dart';
 import 'tx.dart';
 
@@ -443,6 +446,36 @@ final List<AppTool> medyaTools = [
     category: 'music',
     keywords: const [],
     builder: (context, t) => SynthTool(t),
+  ),
+  AppTool(
+    id: 'uyg-video-oynatici',
+    title: kMedyaTitle['uyg-video-oynatici']!,
+    tagline: kMedyaTag['uyg-video-oynatici']!,
+    icon: Icons.smart_display_rounded,
+    color: const Color(0xFF29B6F6),
+    category: 'video',
+    keywords: const ['video', 'player', 'srt', 'subtitle', 'mp4', 'mkv'],
+    builder: (context, t) => VideoPlayerTool(t),
+  ),
+  AppTool(
+    id: 'uyg-gizli-album',
+    title: kMedyaTitle['uyg-gizli-album']!,
+    tagline: kMedyaTag['uyg-gizli-album']!,
+    icon: Icons.enhanced_encryption_rounded,
+    color: const Color(0xFF8D6E63),
+    category: 'photo',
+    keywords: const ['vault', 'hidden', 'private', 'secret', 'lock'],
+    builder: (context, t) => VaultTool(t),
+  ),
+  AppTool(
+    id: 'uyg-ekran-kaydedici',
+    title: kMedyaTitle['uyg-ekran-kaydedici']!,
+    tagline: kMedyaTag['uyg-ekran-kaydedici']!,
+    icon: Icons.screen_share_rounded,
+    color: const Color(0xFFEF5350),
+    category: 'video',
+    keywords: const ['screen', 'record', 'recorder', 'capture', 'mp4'],
+    builder: (context, t) => ScreenRecorderTool(t),
   ),
 ];
 

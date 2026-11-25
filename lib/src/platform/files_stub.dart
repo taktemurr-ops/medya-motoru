@@ -23,4 +23,5 @@ class MediaFiles {
   static Future<bool> exists(String path) async => false;
   static Stream<double> download(String url, String target) => const Stream<double>.empty();
   static VideoPlayerController? video(String path) => null;
+  static Future<VideoPlayerController?> videoBytes(Uint8List bytes, String name) async => null;
 }

@@ -188,4 +188,11 @@ class MediaFiles {
   }
 
   static VideoPlayerController? video(String path) => VideoPlayerController.file(File(path));
+
+  /// Bayt olarak seçilen video (yalnız web'de gerekir; burada geçici dosya).
+  static Future<VideoPlayerController?> videoBytes(Uint8List bytes, String name) async {
+    final ext = name.contains('.') ? name.split('.').last.toLowerCase() : 'mp4';
+    final p = await writeTemp(bytes, ext);
+    return p == null ? null : VideoPlayerController.file(File(p));
+  }
 }

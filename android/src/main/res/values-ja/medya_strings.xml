@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">画面録画</string>
+    <string name="medya_rec_running">画面を録画中</string>
+    <string name="medya_rec_stop">停止</string>
+</resources>

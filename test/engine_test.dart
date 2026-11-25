@@ -34,9 +34,9 @@ Rgba gradient(int w, int h, {bool invert = false}) {
 }
 
 void main() {
-  test('42 araç, 33 dilde ad ve açıklama, geçerli kategori ve öne çıkanlar', () {
-    expect(medyaTools.length, 42);
-    expect(medyaTools.map((t) => t.id).toSet().length, 42);
+  test('45 araç, 33 dilde ad ve açıklama, geçerli kategori ve öne çıkanlar', () {
+    expect(medyaTools.length, 45);
+    expect(medyaTools.map((t) => t.id).toSet().length, 45);
     for (final t in medyaTools) {
       expect(t.title.length, 33, reason: t.id);
       expect(t.tagline.length, 33, reason: t.id);
@@ -308,6 +308,89 @@ void main() {
     });
   });
 
+  group('oynatıcı, gizli albüm, ekran kaydı', () {
+    test('SRT/VTT ayrıştırma ve zamanda altyazı', () {
+      const srt = '﻿1\r\n00:00:01,000 --> 00:00:02,500\r\n<i>Merhaba</i>\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\n{\\an8}İkinci\r\nsatır\r\n\r\nbozuk blok\r\n\r\n3\r\n00:00:05.5 --> 00:00:05.000\r\nters\r\n';
+      final cues = parseSrt(srt);
+      expect(cues.length, 2);
+      expect(cues[0].text, 'Merhaba');
+      expect(cues[1].text, 'İkinci\nsatır');
+      expect(cueAt(cues, const Duration(milliseconds: 1500)), 'Merhaba');
+      expect(cueAt(cues, const Duration(milliseconds: 2600)), '');
+      expect(cueAt(cues, const Duration(milliseconds: 3500)), 'İkinci\nsatır');
+      expect(cueAt(cues, const Duration(milliseconds: 2000), offset: const Duration(seconds: 1)), 'Merhaba');
+      final vtt = parseSrt('WEBVTT\n\n00:01:02.300 --> 00:01:04.000\nVTT satırı\n');
+      expect(vtt.single.start, const Duration(minutes: 1, seconds: 2, milliseconds: 300));
+      expect(fmtTime(const Duration(seconds: 75)), '01:15');
+      expect(fmtTime(const Duration(hours: 1, minutes: 2, seconds: 3)), '1:02:03');
+    });
+
+    test('oynatma listesi sırası, A-B, kaldığı yer', () {
+      expect(nextIndex(0, 3, RepeatMode.off), 1);
+      expect(nextIndex(2, 3, RepeatMode.off), isNull);
+      expect(nextIndex(2, 3, RepeatMode.all), 0);
+      expect(nextIndex(1, 3, RepeatMode.one), 1);
+      expect(nextIndex(0, 0, RepeatMode.all), isNull);
+      expect(previousIndex(0, 3), 0);
+      expect(previousIndex(2, 3), 1);
+      final order = shuffledOrder(10, 4, math.Random(1));
+      expect(order.first, 4);
+      expect(order.toSet().length, 10);
+      expect(nextIndex(order[3], 10, RepeatMode.off, order: order), order[4]);
+      expect(abJump(const Duration(seconds: 10), const Duration(seconds: 2), const Duration(seconds: 8)), const Duration(seconds: 2));
+      expect(abJump(const Duration(seconds: 5), const Duration(seconds: 2), const Duration(seconds: 8)), isNull);
+      expect(abJump(const Duration(seconds: 10), const Duration(seconds: 2), null), isNull);
+      const total = Duration(minutes: 10);
+      expect(resumePoint(const Duration(seconds: 3), total), isNull);
+      expect(resumePoint(const Duration(minutes: 9, seconds: 55), total), isNull);
+      expect(resumePoint(const Duration(minutes: 4), total), const Duration(minutes: 4));
+      expect(resumeKey('A.mp4', 10), resumeKey('a.MP4', 10));
+      expect(kSpeeds.contains(1.0), isTrue);
+    });
+
+    test('kasa: şifreleme, yanlış parola, parola değişimi, dizin', () async {
+      final (h, key) = await createVault('1234', iterations: 1000);
+      expect(key.length, 32);
+      final h2 = VaultHeader.fromJson(h.toJson())!;
+      expect(await unlockVault(h2, '1234'), key);
+      expect(await unlockVault(h2, '1235'), isNull);
+      final data = Uint8List.fromList(List<int>.generate(5000, (i) => i * 7 % 256));
+      final sealed = await sealBytes(key, data);
+      expect(sealed.length, data.length + 28);
+      expect(await openBytes(key, sealed), data);
+      final tampered = Uint8List.fromList(sealed)..[40] ^= 1;
+      expect(await openBytes(key, tampered), isNull);
+      final h3 = await rewrapVault(h2, key, 'yeni-parola');
+      expect(await unlockVault(h3, '1234'), isNull);
+      expect(await unlockVault(h3, 'yeni-parola'), key);
+      final items = [VaultItem(newItemId(), 'tatil.jpg', false, 1200, 5), VaultItem(newItemId(), 'v.mp4', true, 99, 6)];
+      final back = decodeIndex(encodeIndex(items));
+      expect(back.length, 2);
+      expect(back[1].video, isTrue);
+      expect(back[0].name, 'tatil.jpg');
+      expect(decodeIndex('[{"id":"../x","name":"a"}]'), isEmpty);
+      expect(VaultHeader.fromJson('bozuk'), isNull);
+      expect(passwordOk('abc'), isFalse);
+      expect(passwordOk('abcd'), isTrue);
+      expect(lockoutFor(4), Duration.zero);
+      expect(lockoutFor(5), const Duration(seconds: 30));
+      expect(lockoutFor(10), const Duration(seconds: 60));
+      expect(lockoutFor(100), const Duration(seconds: 900));
+    });
+
+    test('ekran kaydı boyutu, bit hızı, dosya adı', () {
+      final s = recordSize(1080, 2400, 720);
+      expect(s.w % 16, 0);
+      expect(s.h % 16, 0);
+      expect((s.w - 720).abs(), lessThanOrEqualTo(8));
+      final n = recordSize(1080, 2400, 0);
+      expect((n.w - 1080).abs(), lessThanOrEqualTo(8));
+      expect(recordBitrate(720, 1600, 30, 1), inInclusiveRange(1000000, 40000000));
+      expect(recordBitrate(720, 1600, 30, 2), greaterThan(recordBitrate(720, 1600, 30, 0)));
+      expect(recordFileName(DateTime(2026, 11, 25, 14, 3, 9)), 'ekran_2026-11-25_14-03-09.mp4');
+    });
+  });
+
   // Eklenti gerektirmeyen ekranlar (ses çalar/kamera/mikrofon açmayanlar) açılır.
   for (final id in [
     'uyg-fotograf-duzenleyici', 'uyg-kolaj', 'uyg-kirp-ve-boyutlandir', 'uyg-fotograf-sikistirma',
@@ -318,6 +401,7 @@ void main() {
     'uyg-video-kirp-ve-birlestir', 'uyg-video-sikistirma', 'uyg-video-hiz', 'uyg-videodan-ses-cikarma',
     'uyg-slayt-gosterisi-video', 'uyg-arka-plan-silme', 'uyg-fotograf-iyilestirme',
     'uyg-yuz-ve-plaka-bulaniklastirma', 'uyg-ses-formati-donusturucu',
+    'uyg-video-oynatici', 'uyg-gizli-album', 'uyg-ekran-kaydedici',
   ]) {
     testWidgets('araç ekranı açılır: $id', (tester) async {
       final s = AppServices(hubId: 'm', backend: MemoryBackend(), ads: NoAdsService(), purchases: NoPurchaseService());

@@ -1,6 +1,6 @@
 # medya-motoru
 
-Fotoğraf, Video ve Ses ailesinin motoru: 42 aracın gerçek uygulamaları, 33 dilde
+Fotoğraf, Video ve Ses ailesinin motoru: 45 aracın gerçek uygulamaları, 33 dilde
 metinleri ve merkez görünümü (onaylı oyun merkezi tasarımının mor-mercan "stüdyo" tonu).
 
 - Çatı: `studio_core/apps` (AppTool, merkez kabuğu, reklam/satın alma, gizlilik, favoriler).
@@ -45,6 +45,16 @@ ses (WAV) ve müzik araçları web'de de çalışır; GIF web'de fotoğraflardan
 Yüz bulma ve plaka benzeri yazı bulma Google ML Kit ile cihazda yapılır (Android/iOS);
 web'de bu araç yalnızca elle bulanıklaştırma sunar.
 
+## 2. tur araçları
+
+| Araç | Ne yapar | Platform |
+| --- | --- | --- |
+| Video oynatıcı | Oynatma listesi (sürükle-sırala), kaldığı yerden devam, 0,25–3× hız, tekrar (tek/tümü), karıştırma, A-B tekrar, çift dokunma ±10 sn, SRT/VTT altyazı (±0,5 sn kaydırma), sığdır/doldur/uzat, kontrol kilidi, uyku zamanlayıcısı, yatay görünüm | Android, iOS (video_player); web'de seçilen dosya bellekten (blob) oynatılır, liste oturumluk |
+| Gizli albüm | Parolalı, şifreli kasa: PBKDF2-HMAC-SHA256 (120 000 yineleme) ile türetilen anahtar rastgele bir veri anahtarını sarar; her dosya, küçük resmi ve dizin (dosya adları) AES-256-GCM ile şifrelenir (`cryptography`, saf Dart, ayrı isolate). Arka plana geçince kilit, yanlış parolada artan bekleme, parola değişimi (yeniden şifreleme gerekmez), tümünü silme. Arka kapı yoktur | Android, iOS (web'de dosya sistemi yok) |
+| Ekran kaydedici | MediaProjection + MediaRecorder (H.264/AAC MP4), ön plan hizmeti (`foregroundServiceType="mediaProjection"`, bildirimde Durdur), çözünürlük/kare hızı/kalite, geri sayım, duraklat/sürdür (Android 7+), isteğe bağlı mikrofon; kayıt listesi, galeriye kaydetme, paylaşma | Android. iOS: uygulamalar ReplayKit ile yalnız kendi ekranlarını kaydedebilir; sistem geneli için ayrı bir Broadcast Upload Extension (ayrı hedef, App Group) gerekir, bu yüzden araç Denetim Merkezi'ndeki yerleşik Ekran Kaydı'nı adım adım anlatır |
+
+Ekran kaydında diğer uygulamaların iç sesi (AudioPlaybackCapture) kaydedilmez; yalnız mikrofon.
+
 ## İzinler
 
 - Fotoğraf/video seçimi Android Photo Picker ile (`READ_MEDIA_*` istenmez).
@@ -52,6 +62,8 @@ web'de bu araç yalnızca elle bulanıklaştırma sunar.
   yapmaz, bu yüzden `READ_MEDIA_AUDIO` gerekmez.
 - Kamera: filtreli kamera ve zaman atlamalı video. Mikrofon: ses değiştirici, ses
   düzenleyici, gürültü azaltma ve podcast. İzin istenmeden önce 33 dilde açıklama gösterilir.
+- Ekran kaydı: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PROJECTION`, `POST_NOTIFICATIONS`
+  (bildirimdeki Durdur düğmesi için, isteğe bağlı) ve her kayıtta sistemin MediaProjection onayı.
 - Zil sesi `WRITE_SETTINGS` istemez: dosya Ringtones klasörüne eklenir ve sistem ses
   ayarları açılır.
 

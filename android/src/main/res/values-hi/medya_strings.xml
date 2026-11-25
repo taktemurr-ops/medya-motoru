@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">स्क्रीन रिकॉर्डर</string>
+    <string name="medya_rec_running">स्क्रीन रिकॉर्ड हो रही है</string>
+    <string name="medya_rec_stop">रोकें</string>
+</resources>

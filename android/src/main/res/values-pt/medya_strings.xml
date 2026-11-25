@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Gravador de tela</string>
+    <string name="medya_rec_running">Gravando a tela</string>
+    <string name="medya_rec_stop">Parar</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Ghi màn hình</string>
+    <string name="medya_rec_running">Đang ghi màn hình</string>
+    <string name="medya_rec_stop">Dừng</string>
+</resources>

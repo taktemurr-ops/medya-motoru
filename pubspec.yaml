@@ -1,5 +1,5 @@
 name: medya_motoru
-description: "Fotoğraf, Video ve Ses motoru: 42 çevrimdışı araç (fotoğraf, cihazda yapay zekâ, video, ses, müzik, tasarım)."
+description: "Fotoğraf, Video ve Ses motoru: 45 çevrimdışı araç (fotoğraf, cihazda yapay zekâ, video, ses, müzik, tasarım)."
 publish_to: none
 version: 1.0.0
 
@@ -17,6 +17,8 @@ dependencies:
   audioplayers: ^6.5.0
   camera: ^0.12.0
   cross_file: ^0.3.4
+  # Gizli albüm: PBKDF2-HMAC-SHA256 + AES-256-GCM (saf Dart, Apache-2.0).
+  cryptography: ^2.7.0
   file_picker: ">=8.1.0 <11.0.0"
   gal: ^2.3.0
   google_mlkit_face_detection: ">=0.12.0 <1.0.0"

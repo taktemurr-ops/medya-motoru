@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Üretildi: proto/apps/medya/mknative_res.py -->
+<resources>
+    <string name="medya_rec_channel">Näytön tallennin</string>
+    <string name="medya_rec_running">Tallennetaan näyttöä</string>
+    <string name="medya_rec_stop">Pysäytä</string>
+</resources>
