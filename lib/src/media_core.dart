@@ -81,17 +81,17 @@ String fmtTime(Duration d) {
 }
 
 /// Tekrar kipi.
-enum RepeatMode { off, one, all }
+enum PlayRepeat { off, one, all }
 
 /// Oynatma listesinde sıradaki öğe (yoksa null). [order] karıştırma sırası.
-int? nextIndex(int current, int length, RepeatMode mode, {List<int>? order}) {
+int? nextIndex(int current, int length, PlayRepeat mode, {List<int>? order}) {
   if (length == 0) return null;
-  if (mode == RepeatMode.one) return current;
+  if (mode == PlayRepeat.one) return current;
   final seq = order ?? List<int>.generate(length, (i) => i);
   final at = seq.indexOf(current);
   if (at < 0) return seq.first;
   if (at + 1 < seq.length) return seq[at + 1];
-  return mode == RepeatMode.all ? seq.first : null;
+  return mode == PlayRepeat.all ? seq.first : null;
 }
 
 /// Önceki öğe (başta ise kendisi).

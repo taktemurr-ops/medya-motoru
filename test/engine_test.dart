@@ -326,17 +326,17 @@ void main() {
     });
 
     test('oynatma listesi sırası, A-B, kaldığı yer', () {
-      expect(nextIndex(0, 3, RepeatMode.off), 1);
-      expect(nextIndex(2, 3, RepeatMode.off), isNull);
-      expect(nextIndex(2, 3, RepeatMode.all), 0);
-      expect(nextIndex(1, 3, RepeatMode.one), 1);
-      expect(nextIndex(0, 0, RepeatMode.all), isNull);
+      expect(nextIndex(0, 3, PlayRepeat.off), 1);
+      expect(nextIndex(2, 3, PlayRepeat.off), isNull);
+      expect(nextIndex(2, 3, PlayRepeat.all), 0);
+      expect(nextIndex(1, 3, PlayRepeat.one), 1);
+      expect(nextIndex(0, 0, PlayRepeat.all), isNull);
       expect(previousIndex(0, 3), 0);
       expect(previousIndex(2, 3), 1);
       final order = shuffledOrder(10, 4, math.Random(1));
       expect(order.first, 4);
       expect(order.toSet().length, 10);
-      expect(nextIndex(order[3], 10, RepeatMode.off, order: order), order[4]);
+      expect(nextIndex(order[3], 10, PlayRepeat.off, order: order), order[4]);
       expect(abJump(const Duration(seconds: 10), const Duration(seconds: 2), const Duration(seconds: 8)), const Duration(seconds: 2));
       expect(abJump(const Duration(seconds: 5), const Duration(seconds: 2), const Duration(seconds: 8)), isNull);
       expect(abJump(const Duration(seconds: 10), const Duration(seconds: 2), null), isNull);

@@ -202,7 +202,7 @@ class _PlayerPageState extends State<_PlayerPage> {
   VideoPlayerController? _c;
   late int _index = widget.start;
   late double _speed = widget.speed;
-  RepeatMode _repeat = RepeatMode.off;
+  PlayRepeat _repeat = PlayRepeat.off;
   List<int>? _order;
   bool _controls = true;
   bool _locked = false;
@@ -555,7 +555,7 @@ class _PlayerPageState extends State<_PlayerPage> {
                 IconButton(
                   icon: const Icon(Icons.skip_next_rounded),
                   onPressed: () {
-                    final n = nextIndex(_index, widget.items.length, _repeat == RepeatMode.one ? RepeatMode.all : _repeat, order: _order);
+                    final n = nextIndex(_index, widget.items.length, _repeat == PlayRepeat.one ? PlayRepeat.all : _repeat, order: _order);
                     if (n != null) _load(n);
                   },
                 ),
@@ -571,17 +571,17 @@ class _PlayerPageState extends State<_PlayerPage> {
                       c?.setPlaybackSpeed(s);
                       widget.onSpeed(s);
                     },
-                    itemBuilder: (_) => [for (final s in kSpeeds) PopupMenuItem(value: s, child: Text('${s}×'))],
-                    child: Padding(padding: const EdgeInsets.all(12), child: Text('${_speed}×', style: const TextStyle(fontWeight: FontWeight.w800))),
+                    itemBuilder: (_) => [for (final s in kSpeeds) PopupMenuItem(value: s, child: Text('$s×'))],
+                    child: Padding(padding: const EdgeInsets.all(12), child: Text('$_speed×', style: const TextStyle(fontWeight: FontWeight.w800))),
                   ),
                   IconButton(
                     tooltip: L(t, 'repeat'),
                     icon: Icon(switch (_repeat) {
-                      RepeatMode.off => Icons.repeat_rounded,
-                      RepeatMode.one => Icons.repeat_one_on_rounded,
-                      RepeatMode.all => Icons.repeat_on_rounded,
+                      PlayRepeat.off => Icons.repeat_rounded,
+                      PlayRepeat.one => Icons.repeat_one_on_rounded,
+                      PlayRepeat.all => Icons.repeat_on_rounded,
                     }),
-                    onPressed: () => setState(() => _repeat = RepeatMode.values[(_repeat.index + 1) % 3]),
+                    onPressed: () => setState(() => _repeat = PlayRepeat.values[(_repeat.index + 1) % 3]),
                   ),
                   IconButton(
                     tooltip: L(t, 'shuffle'),
