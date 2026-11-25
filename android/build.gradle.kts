@@ -47,4 +47,6 @@ dependencies {
     implementation("androidx.annotation:annotation:1.9.1")
     // Cihaz üzerinde yapay zekâ (arka plan silme, büyütme, renklendirme).
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    // Saf Java zamanlama yardımcıları (RecordClock, AudioTimeline) için JVM birim testleri.
+    testImplementation("junit:junit:4.13.2")
 }

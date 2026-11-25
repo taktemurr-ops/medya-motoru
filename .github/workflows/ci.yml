@@ -23,3 +23,29 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test --reporter expanded
+  jvm:
+    # Ekran kaydı ses/görüntü zamanlaması (saf Java, Android SDK gerekmez).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: JUnit - RecordClock / AudioTimeline
+        run: |
+          set -e
+          M=https://repo1.maven.org/maven2
+          curl -fsSLo /tmp/junit.jar $M/junit/junit/4.13.2/junit-4.13.2.jar
+          curl -fsSLo /tmp/hamcrest.jar $M/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+          echo "8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3  /tmp/junit.jar" | sha256sum -c
+          echo "66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9  /tmp/hamcrest.jar" | sha256sum -c
+          CP=/tmp/junit.jar:/tmp/hamcrest.jar
+          P=android/src/main/java/com/gamestudio100/medya_motoru
+          T=android/src/test/java/com/gamestudio100/medya_motoru
+          mkdir -p /tmp/jvm
+          javac -Xlint:all -Werror -d /tmp/jvm -cp $CP $P/RecordClock.java $P/AudioTimeline.java $T/*.java
+          java -cp /tmp/jvm:$CP org.junit.runner.JUnitCore \
+            com.gamestudio100.medya_motoru.RecordClockTest \
+            com.gamestudio100.medya_motoru.AudioTimelineTest

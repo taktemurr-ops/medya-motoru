@@ -33,6 +33,13 @@ import java.nio.ByteBuffer;
  * ALLOW_CAPTURE_BY_NONE/SYSTEM, aramalar) kayıtta sessiz kalır; hiç ses
  * gelmezse "internal_silent" uyarısı verilir. Uygulama sesi kaydedici
  * kurulamazsa kayıt mikrofonla ya da sessiz sürer ("internal_unavailable").
+ *
+ * Zamanlama: ses duvar saatine bağlıdır ({@link AudioTimeline}). AudioRecord
+ * READ_NON_BLOCKING ile okunur; hiçbir şey çalmadığı için yakalama veri
+ * vermezse bir parça süresi içinde sessizlik üretilir, böylece AAC biçimi hemen
+ * belirir, muxer görüntü + ses biçimi bilinir bilinmez başlar ve ses/görüntü
+ * kaymaz. Duraklatma/sürdürme {@link RecordClock} ile her iki izde birebir
+ * aynı ofsetle uygulanır.
  */
 @RequiresApi(29)
 final class CodecScreenRecorder {
@@ -57,10 +64,8 @@ final class CodecScreenRecorder {
 
   private Thread videoThread, audioThread;
   private volatile boolean running;
-  private volatile boolean paused;
   private volatile boolean needKey = true;
-  private volatile long baseUs;
-  private volatile long pausedTotalUs, pauseStartUs, resumeAtUs;
+  private final RecordClock clock = new RecordClock();
   private volatile int appPeak;
   private long lastVideoPts = -1, lastAudioPts = -1;
 
@@ -146,7 +151,7 @@ final class CodecScreenRecorder {
     muxer = new MediaMuxer(out, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
     video.start();
     if (audio != null) audio.start();
-    baseUs = System.nanoTime() / 1000;
+    clock.start(nowUs());
     running = true;
     display = projection.createVirtualDisplay("medya-screen-record", width, height, dpi,
         DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, inputSurface, null, handler);
@@ -164,16 +169,16 @@ final class CodecScreenRecorder {
     return appRec != null;
   }
 
+  private static long nowUs() {
+    return System.nanoTime() / 1000;
+  }
+
   void pause(boolean p) {
-    long now = System.nanoTime() / 1000;
-    if (p && !paused) {
-      pauseStartUs = now;
-      paused = true;
-    } else if (!p && paused) {
-      pausedTotalUs += now - pauseStartUs;
-      resumeAtUs = now;
+    long now = nowUs();
+    if (p) {
+      clock.pause(now);
+    } else if (clock.resume(now)) {
       needKey = true;
-      paused = false;
       requestKeyFrame();
     }
   }
@@ -236,11 +241,12 @@ final class CodecScreenRecorder {
       boolean eos = (info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
       boolean config = (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
       boolean key = (info.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
-      long frameUs = info.presentationTimeUs;
-      boolean drop = config || buf == null || info.size <= 0 || paused || frameUs < resumeAtUs;
+      // Yüzey zaman damgası System.nanoTime() tabanlıdır; ses ile aynı saate çevrilir.
+      long outUs = clock.toOutputUs(info.presentationTimeUs);
+      boolean drop = config || buf == null || info.size <= 0 || outUs < 0;
       if (!drop && needKey && !key) drop = true;
       if (!drop) {
-        info.presentationTimeUs = Math.max(0, frameUs - baseUs - pausedTotalUs);
+        info.presentationTimeUs = outUs;
         buf.position(info.offset);
         buf.limit(info.offset + info.size);
         if (write(true, buf, info)) {
@@ -254,71 +260,79 @@ final class CodecScreenRecorder {
     }
   }
 
-  /** 16 bit PCM: stereo uygulama sesi + mono mikrofon, taşmada kırpılır. */
-  static void mix(short[] stereo, short[] mono, short[] outBuf, int frames) {
-    for (int i = 0; i < frames; i++) {
-      int m = mono == null ? 0 : mono[i];
-      for (int c = 0; c < 2; c++) {
-        int j = i * 2 + c;
-        int v = (stereo == null ? 0 : stereo[j]) + m;
-        outBuf[j] = (short) Math.max(-32768, Math.min(32767, v));
+  /**
+   * Duvar saatine bağlı ses döngüsü: kaynaklar engellemeden okunur, çıktı
+   * saati ilerledikçe parça üretilir; veri gelmezse sessizlik kodlanır.
+   */
+  private void audioLoop() {
+    AudioTimeline tl = new AudioTimeline(RATE, CHUNK_FRAMES, appRec != null, micRec != null);
+    short[] app = appRec != null ? new short[CHUNK_FRAMES * 2 * 2] : null;
+    short[] mic = micRec != null ? new short[CHUNK_FRAMES * 2] : null;
+    short[] mixed = new short[CHUNK_FRAMES * 2];
+    byte[] bytes = new byte[CHUNK_FRAMES * 4];
+    long chunkMs = Math.max(1, CHUNK_FRAMES * 1000L / RATE);
+    MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+    while (running) {
+      boolean paused = clock.isPaused();
+      if (app != null) {
+        int r = readNonBlocking(appRec, app);
+        if (r > 0 && !paused) {
+          int peak = appPeak;
+          for (int i = 0; i < r; i++) {
+            int v = Math.abs((int) app[i]);
+            if (v > peak) peak = v;
+          }
+          appPeak = peak;
+          tl.pushApp(app, r);
+        }
       }
+      if (mic != null) {
+        int r = readNonBlocking(micRec, mic);
+        if (r > 0 && !paused) tl.pushMic(mic, r);
+      }
+      if (paused) {
+        // Duraklatmada gelen veri atılır; çıktı saati donar (görüntüyle aynı ofset).
+        tl.discardInput();
+        drainAudio(info, false);
+        sleepMs(chunkMs / 2 + 1);
+        continue;
+      }
+      long outUs = clock.nowOutputUs(nowUs());
+      boolean produced = false;
+      // Geride kalındıysa (ör. iş parçacığı gecikti) birkaç parça art arda üretilir.
+      for (int k = 0; k < 8 && running; k++) {
+        int n = tl.next(outUs, mixed);
+        if (n <= 0) break;
+        for (int i = 0; i < n * 2; i++) {
+          bytes[i * 2] = (byte) (mixed[i] & 0xff);
+          bytes[i * 2 + 1] = (byte) ((mixed[i] >> 8) & 0xff);
+        }
+        queueAudio(bytes, n * 4, tl.lastPtsUs(), false, info);
+        produced = true;
+      }
+      drainAudio(info, false);
+      if (!produced) sleepMs(Math.max(2, chunkMs / 4));
+    }
+    queueAudio(bytes, 0, tl.nextPtsUs(), true, info);
+    drainAudio(info, true);
+  }
+
+  /** READ_NON_BLOCKING okuma; hata ya da veri yoksa 0. */
+  private static int readNonBlocking(AudioRecord rec, short[] buf) {
+    try {
+      int r = rec.read(buf, 0, buf.length, AudioRecord.READ_NON_BLOCKING);
+      return Math.max(0, r);
+    } catch (RuntimeException e) {
+      return 0;
     }
   }
 
-  private void audioLoop() {
-    short[] app = appRec != null ? new short[CHUNK_FRAMES * 2] : null;
-    short[] mic = micRec != null ? new short[CHUNK_FRAMES] : null;
-    short[] mixed = new short[CHUNK_FRAMES * 2];
-    byte[] bytes = new byte[CHUNK_FRAMES * 4];
-    long frames = 0;
-    long startUs = -1;
-    MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-    while (running) {
-      int n = CHUNK_FRAMES;
-      if (app != null) {
-        int r = appRec.read(app, 0, app.length);
-        if (r <= 0) {
-          drainAudio(info, false);
-          continue;
-        }
-        n = r / 2;
-      }
-      if (mic != null) {
-        int got = 0;
-        while (got < n && running) {
-          int r = micRec.read(mic, got, n - got);
-          if (r <= 0) break;
-          got += r;
-        }
-        for (int i = got; i < n; i++) mic[i] = 0;
-      }
-      if (startUs < 0) startUs = System.nanoTime() / 1000 - baseUs;
-      if (paused) {
-        drainAudio(info, false);
-        continue;
-      }
-      if (app != null) {
-        int peak = appPeak;
-        for (int i = 0; i < n * 2; i++) {
-          int a = Math.abs((int) app[i]);
-          if (a > peak) peak = a;
-        }
-        appPeak = peak;
-      }
-      mix(app, mic, mixed, n);
-      for (int i = 0; i < n * 2; i++) {
-        bytes[i * 2] = (byte) (mixed[i] & 0xff);
-        bytes[i * 2 + 1] = (byte) ((mixed[i] >> 8) & 0xff);
-      }
-      long pts = Math.max(0, startUs) + frames * 1_000_000L / RATE;
-      queueAudio(bytes, n * 4, pts, false, info);
-      frames += n;
-      drainAudio(info, false);
+  private static void sleepMs(long ms) {
+    try {
+      Thread.sleep(ms);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
-    long pts = Math.max(0, startUs) + frames * 1_000_000L / RATE;
-    queueAudio(bytes, 0, pts, true, info);
-    drainAudio(info, true);
   }
 
   private void queueAudio(byte[] data, int len, long pts, boolean eos, MediaCodec.BufferInfo info) {
@@ -380,7 +394,6 @@ final class CodecScreenRecorder {
    */
   String stop() {
     running = false;
-    paused = false;
     if (display != null) {
       display.release();
       display = null;
