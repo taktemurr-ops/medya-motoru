@@ -1,0 +1,53 @@
+name: medya_motoru
+description: "Fotoğraf, Video ve Ses motoru: 42 çevrimdışı araç (fotoğraf, cihazda yapay zekâ, video, ses, müzik, tasarım)."
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  studio_core:
+    git:
+      url: https://github.com/taktemurr-ops/studio-core
+      ref: 92b51dd7d47c300d3611c448b5474fca5f793f2a
+  audioplayers: ^6.5.0
+  camera: ^0.11.0
+  cross_file: ^0.3.4
+  file_picker: ">=8.1.0 <11.0.0"
+  gal: ^2.3.0
+  google_mlkit_face_detection: ">=0.12.0 <1.0.0"
+  google_mlkit_text_recognition: ">=0.14.0 <1.0.0"
+  image: ^4.2.0
+  image_picker: ^1.1.2
+  image_picker_android: ^0.8.12
+  image_picker_platform_interface: ^2.10.0
+  path_provider: ^2.1.4
+  pdf: ^3.11.1
+  record: ">=5.2.0 <7.0.0"
+  share_plus: ^10.1.4
+  video_player: ^2.9.2
+  web: ^1.1.0
+  # whisper.cpp (MIT) – otomatik altyazı; model ilk kullanımda indirilir.
+  whisper_ggml: ^2.10.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  # Yerel ortam eklentisi: Android Media3 Transformer + ONNX Runtime (Java),
+  # iOS AVFoundation + ONNX Runtime (Swift). Web'de yok (araçlar bunu bildirir).
+  plugin:
+    platforms:
+      android:
+        package: com.gamestudio100.medya_motoru
+        pluginClass: MedyaMotoruPlugin
+      ios:
+        pluginClass: MedyaMotoruPlugin
+  assets:
+    - assets/models/

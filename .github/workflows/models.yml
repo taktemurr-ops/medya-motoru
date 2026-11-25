@@ -1,0 +1,51 @@
+name: Models - colorization ONNX release asset
+# Deneysel renklendirme modeli (Zhang ECCV16, BSD-2-Clause) depoda tutulmaz:
+# resmî ağırlık indirilir, tool/convert_models.py ile ONNX'e çevrilir ve
+# "models-v1" sürümüne ek olarak yüklenir (Models.colorizeUrl).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [tool/convert_models.py, .github/workflows/models.yml]
+permissions:
+  contents: write
+jobs:
+  colorize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check existing asset
+        id: chk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view models-v1 --json assets -q '.assets[].name' 2>/dev/null | grep -qx colorization_eccv16.onnx; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.chk.outputs.have != '1'
+        with:
+          python-version: "3.12"
+      - name: Convert
+        if: steps.chk.outputs.have != '1'
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install onnx onnxruntime numpy
+          for i in 1 2 3; do curl -fL --retry 3 -o eccv16.pth https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v1-9b330a0b.pth && break; sleep 30; done
+          python tool/convert_models.py --eccv16 eccv16.pth colorization_eccv16.onnx
+          python - <<'PY'
+          import numpy as np, onnxruntime as ort
+          s = ort.InferenceSession('colorization_eccv16.onnx')
+          o = s.run(None, {'l': (np.random.rand(1, 1, 256, 256) * 100).astype(np.float32)})[0]
+          assert o.shape == (1, 2, 256, 256), o.shape
+          print('ok', o.shape, float(np.abs(o).mean()))
+          PY
+          ls -la colorization_eccv16.onnx
+      - name: Publish
+        if: steps.chk.outputs.have != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view models-v1 >/dev/null 2>&1 || gh release create models-v1 --title "Modeller v1" --notes "Isteğe bağlı indirilen modeller (renklendirme: Zhang ECCV16, BSD-2-Clause)."
+          gh release upload models-v1 colorization_eccv16.onnx --clobber
