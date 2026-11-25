@@ -1,7 +1,14 @@
-name: Models - colorization ONNX release asset
-# Deneysel renklendirme modeli (Zhang ECCV16, BSD-2-Clause) depoda tutulmaz:
-# resmî ağırlık indirilir, tool/convert_models.py ile ONNX'e çevrilir ve
-# "models-v1" sürümüne ek olarak yüklenir (Models.colorizeUrl).
+name: Models - ONNX (Android) + Core ML (iOS) release assets
+# Modeller depoda/uygulamada tutulmaz; "models-v1" sürümüne ek olarak konur ve
+# uygulama ilk kullanımda indirir (SHA-256 doğrulamalı, sonra çevrimdışı).
+#  - Android: ONNX Runtime ile .onnx
+#  - iOS:     Core ML ile .mlmodel (ONNX Runtime iOS pod'u kullanılmaz)
+# Kaynaklar her zaman SHA-256 ile doğrulanır:
+#  - U²-Netp (Apache-2.0): rembg yansıması u2netp.onnx           309c8469…
+#  - Real-ESRGAN general-x4v3 (BSD-3-Clause): resmî .pth         8dc7edb9…
+#    (ONNX: uygulamaya gömülü sürümün bayt bayt aynısı, git geçmişinden 3439a9e4…)
+#  - Zhang ECCV16 renklendirme (BSD-2-Clause): resmî .pth        9b330a0b…
+# Var olan ekler asla değiştirilmez (uygulama SHA-256 değerlerini sabit tutar).
 on:
   workflow_dispatch:
   push:
@@ -9,51 +16,123 @@ on:
     paths: [tool/convert_models.py, .github/workflows/models.yml]
 permissions:
   contents: write
+concurrency:
+  group: models
+  cancel-in-progress: false
+env:
+  U2_SHA: 309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8
+  ESR_PTH_SHA: 8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292
+  ESR_ONNX_SHA: 3439a9e4cd26c4cdfff28f82f00411a7a4f06e7f72a1efdc664479f1e2bf0690
+  ECCV_SHA: 9b330a0bae53f4ded77b1e23defbf78beaa09c10ebc4c4999e8e4f4a160b93f9
 jobs:
-  colorize:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Check existing asset
+        with:
+          fetch-depth: 0
+      - name: Existing assets
         id: chk
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view models-v1 --json assets -q '.assets[].name' 2>/dev/null | grep -qx colorization_eccv16.onnx; then
-            echo "have=1" >> "$GITHUB_OUTPUT"
-          fi
+          gh release view models-v1 >/dev/null 2>&1 || gh release create models-v1 --title "Modeller v1" --notes "İsteğe bağlı indirilen modeller (U²-Netp Apache-2.0, Real-ESRGAN BSD-3-Clause, ECCV16 BSD-2-Clause)."
+          have=$(gh release view models-v1 --json assets -q '.assets[].name' | tr '\n' ' ')
+          echo "have=$have" >> "$GITHUB_OUTPUT"
+          need=""
+          for f in u2netp.onnx realesr_general_x4v3.onnx colorization_eccv16.onnx \
+                   u2netp.mlmodel realesr_general_x4v3.mlmodel colorization_eccv16.mlmodel; do
+            case " $have " in *" $f "*) ;; *) need="$need $f";; esac
+          done
+          echo "need=$need" >> "$GITHUB_OUTPUT"
+          echo "Eksik: $need"
       - uses: actions/setup-python@v5
-        if: steps.chk.outputs.have != '1'
+        if: steps.chk.outputs.need != ''
         with:
           python-version: "3.12"
-      - name: Convert
-        if: steps.chk.outputs.have != '1'
+      - name: Sources (SHA-256 verified)
+        if: steps.chk.outputs.need != ''
         run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install onnx onnxruntime numpy
-          # Resmî S3 adresi artık 403 veriyor; aynı dosyanın (SHA-256 9b330a0b…) GitHub yansıması yedek.
-          SHA=9b330a0bae53f4ded77b1e23defbf78beaa09c10ebc4c4999e8e4f4a160b93f9
+          set -e
+          get() { # url çıktı sha
+            for i in 1 2 3; do curl -fL --retry 3 -o "$2" "$1" && break; rm -f "$2"; sleep 10; done
+            echo "$3  $2" | sha256sum -c -
+          }
+          get https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx u2netp.onnx "$U2_SHA"
+          get https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth esrgan.pth "$ESR_PTH_SHA"
+          # Uygulamaya önceden gömülü ONNX (aynı .pth'den tool/convert_models.py ile üretilmişti).
+          git show 87cd592:assets/models/realesr_general_x4v3.onnx > realesr_general_x4v3.onnx
+          echo "$ESR_ONNX_SHA  realesr_general_x4v3.onnx" | sha256sum -c -
+          ok=""
           for u in https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v1-9b330a0b.pth \
                    https://github.com/clibdev/colorization/releases/latest/download/colorization-eccv-16.pth; do
-            for i in 1 2; do curl -fL --retry 3 -o eccv16.pth "$u" && break; rm -f eccv16.pth; sleep 10; done
-            if [ -f eccv16.pth ] && echo "$SHA  eccv16.pth" | sha256sum -c -; then break; fi
+            curl -fL --retry 3 -o eccv16.pth "$u" || { rm -f eccv16.pth; continue; }
+            if echo "$ECCV_SHA  eccv16.pth" | sha256sum -c -; then ok=1; break; fi
             rm -f eccv16.pth
           done
-          test -f eccv16.pth
-          python tool/convert_models.py --eccv16 eccv16.pth colorization_eccv16.onnx
-          python - <<'PY'
-          import numpy as np, onnxruntime as ort
-          s = ort.InferenceSession('colorization_eccv16.onnx')
-          o = s.run(None, {'l': (np.random.rand(1, 1, 256, 256) * 100).astype(np.float32)})[0]
-          assert o.shape == (1, 2, 256, 256), o.shape
-          print('ok', o.shape, float(np.abs(o).mean()))
-          PY
-          ls -la colorization_eccv16.onnx
-      - name: Publish
-        if: steps.chk.outputs.have != '1'
+          test -n "$ok"
+      - name: Convert
+        if: steps.chk.outputs.need != ''
+        run: |
+          set -e
+          pip install --index-url https://download.pytorch.org/whl/cpu torch==2.7.0 torchvision==0.22.0
+          pip install coremltools==9.0 onnx onnx2torch onnxruntime numpy
+          need="${{ steps.chk.outputs.need }}"
+          mkdir -p out
+          has() { case " $need " in *" $1 "*) return 0;; esac; return 1; }
+          if has u2netp.onnx; then cp u2netp.onnx out/; fi
+          if has realesr_general_x4v3.onnx; then cp realesr_general_x4v3.onnx out/; fi
+          if has colorization_eccv16.onnx; then
+            python tool/convert_models.py --eccv16 eccv16.pth out/colorization_eccv16.onnx
+          fi
+          if has u2netp.mlmodel; then python tool/convert_models.py --coreml-u2netp u2netp.onnx out/u2netp.mlmodel; fi
+          if has realesr_general_x4v3.mlmodel; then python tool/convert_models.py --coreml-esrgan esrgan.pth out/realesr_general_x4v3.mlmodel; fi
+          if has colorization_eccv16.mlmodel; then python tool/convert_models.py --coreml-eccv16 eccv16.pth out/colorization_eccv16.mlmodel; fi
+          ls -la out
+          sha256sum out/*
+      - name: Publish (only missing assets)
+        if: steps.chk.outputs.need != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view models-v1 >/dev/null 2>&1 || gh release create models-v1 --title "Modeller v1" --notes "Isteğe bağlı indirilen modeller (renklendirme: Zhang ECCV16, BSD-2-Clause)."
-          gh release upload models-v1 colorization_eccv16.onnx --clobber
+          for f in out/*; do gh release upload models-v1 "$f"; done
+          gh release view models-v1 --json assets -q '.assets[] | "\(.name) \(.size)"'
+
+  # Core ML modellerinin çıktısı ONNX ile aynı mı? (Core ML yalnız macOS'ta çalışır.)
+  verify-coreml:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download models-v1 -R ${{ github.repository }} -D m
+      - name: Compare Core ML with ONNX Runtime
+        run: |
+          pip install coremltools==9.0 onnxruntime numpy
+          python - <<'PY'
+          import numpy as np, onnxruntime as ort, coremltools as ct
+          rng = np.random.default_rng(0)
+          cases = [
+              ('u2netp', (1, 3, 320, 320), lambda s: rng.normal(size=s)),
+              ('realesr_general_x4v3', (1, 3, 128, 128), lambda s: rng.random(s)),
+              ('realesr_general_x4v3', (1, 3, 77, 40), lambda s: rng.random(s)),
+              ('colorization_eccv16', (1, 1, 256, 256), lambda s: rng.random(s) * 100),
+          ]
+          for name, shape, gen in cases:
+              x = gen(shape).astype(np.float32)
+              so = ort.InferenceSession(f'm/{name}.onnx')
+              ref = so.run([so.get_outputs()[0].name], {so.get_inputs()[0].name: x})[0]
+              ml = ct.models.MLModel(f'm/{name}.mlmodel', compute_units=ct.ComputeUnit.CPU_ONLY)
+              y = ml.predict({'input': x})['output']
+              assert y.shape == ref.shape, (name, y.shape, ref.shape)
+              err = float(np.abs(y - ref).max()); scale = float(np.abs(ref).max()) or 1.0
+              print(name, shape, 'max|Δ|', err, 'max|ref|', scale)
+              assert err / scale < 2e-2, (name, err, scale)
+          print('Core ML == ONNX')
+          PY

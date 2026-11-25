@@ -8,6 +8,14 @@ richzhang/colorization ECCV16 (BSD-2-Clause) ağırlığı
 https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v1-9b330a0b.pth
 `--eccv16` ile ONNX'e çevrilir; çıktı depoda tutulmaz, sürüm eki olarak
 yayınlanır (bkz. README, "Modeller").
+
+iOS (Core ML): ONNX Runtime yerine Core ML kullanılır. Aynı resmî kaynaklardan
+`coremltools` ile tek dosyalık `.mlmodel` (NeuralNetwork, iOS 14+) üretilir;
+girdi/çıktı tensörleri ONNX sürümüyle birebir aynıdır (Dart ön/son işleme
+ortaktır). Cihaz modeli ilk kullanımda indirip `MLModel.compileModel` ile derler.
+  --coreml-u2netp  u2netp.onnx       u2netp.mlmodel        (rembg yansıması, ONNX → PyTorch → Core ML)
+  --coreml-esrgan  realesr.pth       realesr.mlmodel       (esnek boyut 1..512)
+  --coreml-eccv16  eccv16.pth        colorization.mlmodel
 """
 import sys
 
@@ -96,8 +104,68 @@ def eccv16(src, dst):
     torch.onnx.export(net, x, dst, input_names=['l'], output_names=['ab'], opset_version=17, dynamo=False)
 
 
+def _coreml(net, example, inputs, dst):
+    import coremltools as ct
+    net.eval()
+    with torch.no_grad():
+        traced = torch.jit.trace(net, example)
+    ml = ct.convert(traced, inputs=inputs, outputs=[ct.TensorType(name='output')],
+                    convert_to='neuralnetwork', minimum_deployment_target=ct.target.iOS14)
+    ml.short_description = 'medya-motoru'
+    ml.save(dst)
+    return traced
+
+
+class _First(nn.Module):
+    """U²-Netp yedi çıktı verir; uygulama yalnız ilkini (d0) kullanır."""
+
+    def __init__(self, net):
+        super().__init__()
+        self.net = net
+
+    def forward(self, x):
+        o = self.net(x)
+        return o[0] if isinstance(o, (list, tuple)) else o
+
+
+def coreml_u2netp(src, dst):
+    import coremltools as ct
+    import onnx
+    import onnxruntime as ort
+    from onnx2torch import convert
+    m = onnx.load(src)
+    first = m.graph.output[0].name
+    net = _First(convert(m)).eval()
+    x = torch.rand(1, 3, 320, 320)
+    with torch.no_grad():
+        y = net(x).numpy()
+    ref = ort.InferenceSession(src).run([first], {m.graph.input[0].name: x.numpy()})[0]
+    err = float(abs(y - ref).max())
+    assert err < 1e-3, err
+    print('u2netp torch~onnx', err)
+    _coreml(net, x, [ct.TensorType(name='input', shape=(1, 3, 320, 320))], dst)
+
+
+def coreml_esrgan(src, dst):
+    import coremltools as ct
+    net = SRVGGNetCompact()
+    sd = torch.load(src, map_location='cpu')
+    net.load_state_dict(sd.get('params', sd), strict=True)
+    h, w = ct.RangeDim(1, 512, 64), ct.RangeDim(1, 512, 64)
+    _coreml(net, torch.rand(1, 3, 64, 64), [ct.TensorType(name='input', shape=(1, 3, h, w))], dst)
+
+
+def coreml_eccv16(src, dst):
+    import coremltools as ct
+    net = ECCVGenerator()
+    net.load_state_dict(torch.load(src, map_location='cpu'), strict=True)
+    _coreml(net, torch.rand(1, 1, 256, 256) * 100, [ct.TensorType(name='input', shape=(1, 1, 256, 256))], dst)
+
+
 if __name__ == '__main__':
-    if sys.argv[1] == '--eccv16':
-        eccv16(sys.argv[2], sys.argv[3])
+    cmd = {'--eccv16': eccv16, '--coreml-u2netp': coreml_u2netp, '--coreml-esrgan': coreml_esrgan,
+           '--coreml-eccv16': coreml_eccv16}
+    if sys.argv[1] in cmd:
+        cmd[sys.argv[1]](sys.argv[2], sys.argv[3])
     else:
         esrgan(sys.argv[1], sys.argv[2])
