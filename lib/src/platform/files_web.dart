@@ -42,7 +42,7 @@ class MediaFiles {
   static Future<int> size(String path) async => 0;
   static Future<bool> write(String path, Uint8List bytes) async => false;
   static Future<bool> exists(String path) async => false;
-  static Stream<double> download(String url, String target) => const Stream<double>.empty();
+  static Stream<double> download(String url, String target, {String? sha256}) => const Stream<double>.empty();
   static VideoPlayerController? video(String path) => null;
 
   /// Tarayıcıda seçilen videoyu bellekteki bir blob adresinden oynatır.

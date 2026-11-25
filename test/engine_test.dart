@@ -1,10 +1,16 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart';
 import 'package:medya_motoru/medya_motoru.dart';
+import 'package:medya_motoru/src/platform/files.dart';
 import 'package:studio_core/app/services/ads.dart';
 import 'package:studio_core/app/services/purchases.dart';
 import 'package:studio_core/apps/apps.dart';
@@ -50,6 +56,62 @@ void main() {
     expect(medyaHubTitle.length, 33);
     expect(medyaHubTagline.length, 33);
     expect(medyaCategories.length, 6);
+  });
+
+  group('modeller', () {
+    test('Android ONNX, iOS Core ML; hepsi models-v1 sürümünden, SHA-256 sabit', () {
+      final hex = RegExp(r'^[0-9a-f]{64}$');
+      for (final m in Models.all) {
+        expect(hex.hasMatch(m.onnxSha256), isTrue, reason: m.name);
+        expect(hex.hasMatch(m.coremlSha256), isTrue, reason: m.name);
+        expect(m.mb, greaterThan(0));
+      }
+      try {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        expect(Models.coreml, isFalse);
+        expect(Models.file(Models.u2netp), 'u2netp.onnx');
+        expect(Models.url(Models.esrgan), '${Models.base}/realesr_general_x4v3.onnx');
+        expect(Models.sha256(Models.colorize), Models.colorize.onnxSha256);
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        expect(Models.coreml, isTrue);
+        expect(Models.file(Models.colorize), 'colorization_eccv16.mlmodel');
+        expect(Models.url(Models.u2netp), '${Models.base}/u2netp.mlmodel');
+        expect(Models.sha256(Models.esrgan), Models.esrgan.coremlSha256);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    test('indirme: eksiksiz ve SHA-256 tutarsa yazılır, tutmazsa silinir', () async {
+      final body = utf8.encode('model-verisi ' * 5000);
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((r) {
+        r.response.contentLength = body.length;
+        r.response.add(body);
+        unawaited(r.response.close());
+      });
+      final dir = await Directory.systemTemp.createTemp('medya_dl');
+      // flutter_test tüm HTTP isteklerini 400 ile taklit eder; burada gerçek istemci.
+      await HttpOverrides.runWithHttpOverrides(() async {
+        try {
+          final url = 'http://127.0.0.1:${server.port}/m.onnx';
+          final good = crypto.sha256.convert(body).toString();
+          final ok = '${dir.path}/ok.onnx';
+          final p = await MediaFiles.download(url, ok, sha256: good).toList();
+          expect(p.last, 1.0);
+          expect(await File(ok).readAsBytes(), body);
+          expect(File('$ok.part').existsSync(), isFalse);
+
+          final bad = '${dir.path}/bad.onnx';
+          await expectLater(MediaFiles.download(url, bad, sha256: '0' * 64).toList(), throwsA(isA<HttpException>()));
+          expect(File(bad).existsSync(), isFalse);
+          expect(File('$bad.part').existsSync(), isFalse);
+        } finally {
+          await server.close(force: true);
+          await dir.delete(recursive: true);
+        }
+      }, _RealHttp());
+    });
   });
 
   group('ses', () {
@@ -418,3 +480,5 @@ void main() {
     });
   }
 }
+
+class _RealHttp extends HttpOverrides {}

@@ -17,6 +17,8 @@ dependencies:
   audioplayers: ^6.5.0
   camera: ^0.12.0
   cross_file: ^0.3.4
+  # Model indirmelerinin SHA-256 doğrulaması (BSD-3-Clause).
+  crypto: ^3.0.3
   # Gizli albüm: PBKDF2-HMAC-SHA256 + AES-256-GCM (saf Dart, Apache-2.0).
   cryptography: ^2.7.0
   file_picker: ">=8.1.0 <11.0.0"
@@ -43,7 +45,8 @@ dev_dependencies:
 
 flutter:
   # Yerel ortam eklentisi: Android Media3 Transformer + ONNX Runtime (Java),
-  # iOS AVFoundation + ONNX Runtime (Swift). Web'de yok (araçlar bunu bildirir).
+  # iOS AVFoundation + Core ML (Swift). Web'de yok (araçlar bunu bildirir).
+  # Yapay zekâ modelleri gömülmez; ilk kullanımda indirilir (Models, models-v1).
   plugin:
     platforms:
       android:
@@ -51,5 +54,3 @@ flutter:
         pluginClass: MedyaMotoruPlugin
       ios:
         pluginClass: MedyaMotoruPlugin
-  assets:
-    - assets/models/

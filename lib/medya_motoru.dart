@@ -2,8 +2,9 @@
 /// metinleri ve merkez görünümü. İnce depolar (uyg-*) buradan tek bir araç alır.
 ///
 /// Motor aynı zamanda bir Flutter eklentisidir: Android'de Media3 Transformer,
-/// iOS'ta AVFoundation ile video işleri ve ONNX Runtime ile cihaz üzerinde
-/// yapay zekâ (bkz. android/, ios/).
+/// iOS'ta AVFoundation ile video işleri; cihaz üzerinde yapay zekâ Android'de
+/// ONNX Runtime, iOS'ta Core ML ile (bkz. android/, ios/). Modeller ilk
+/// kullanımda indirilir (SHA-256 doğrulamalı), sonra çevrimdışı çalışır.
 library;
 
 export 'src/dsp/audio.dart';
@@ -12,7 +13,7 @@ export 'src/dsp/imaging.dart';
 export 'src/media_core.dart';
 export 'src/native.dart' show MedyaNative, MediaInfo;
 export 'src/registry.dart';
-export 'src/tools/ai.dart' show Models, whisperLang, kAppLangs;
+export 'src/tools/ai.dart' show AiModel, Models, whisperLang, kAppLangs;
 export 'src/tools/design.dart' show floodFill, upscaleNearest, shapePath, kPatternIds;
 export 'src/tools/photo.dart' show readPhotoMeta, kSwatches;
 export 'src/tools/video.dart' show even, evenFit, gifJob;

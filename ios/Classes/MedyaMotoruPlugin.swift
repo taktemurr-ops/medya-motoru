@@ -2,11 +2,13 @@
 //
 // Video kesme, birleştirme, sıkıştırma, hız, ses çıkarma ve slayt gösterisi
 // AVFoundation ile; ses çözme (WAV) AVAssetReader ile; kare çıkarma
-// AVAssetImageGenerator ile yapılır. Ağ kullanılmaz.
+// AVAssetImageGenerator ile yapılır. Yapay zekâ modelleri (Dart tarafının
+// indirdiği .mlmodel) Core ML ile çalıştırılır; ONNX Runtime kullanılmaz.
+// Ağ kullanılmaz.
 import AVFoundation
+import CoreML
 import Flutter
 import UIKit
-import onnxruntime_objc
 
 struct MedyaError: LocalizedError {
   let message: String
@@ -16,8 +18,7 @@ struct MedyaError: LocalizedError {
 
 public class MedyaMotoruPlugin: NSObject, FlutterPlugin {
   private let work = DispatchQueue(label: "medya_motoru.work", qos: .userInitiated)
-  private var ortEnv: ORTEnv?
-  private var sessions: [String: ORTSession] = [:]
+  private var models: [String: MLModel] = [:]
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "medya_motoru/media", binaryMessenger: registrar.messenger())
@@ -188,34 +189,133 @@ public class MedyaMotoruPlugin: NSObject, FlutterPlugin {
     export(comp, preset: AVAssetExportPresetHighestQuality, out: url(a["output"]), type: .mp4, done: done)
   }
 
-  // MARK: - ONNX
+  // MARK: - Core ML (Android'deki ONNX Runtime ile aynı sözleşme)
 
+  /// .mlmodel dosyasını bir kez derler (yanına .mlmodelc) ve önbelleğe alır.
+  /// Kaynak dosya derlenmişten yeniyse (yeniden indirme) yeniden derlenir.
+  private func coreMLModel(_ path: String) throws -> MLModel {
+    if let m = models[path] { return m }
+    let fm = FileManager.default
+    let src = URL(fileURLWithPath: path)
+    guard fm.fileExists(atPath: src.path) else { throw MedyaError("model") }
+    let compiled = src.deletingPathExtension().appendingPathExtension("mlmodelc")
+    var stale = !fm.fileExists(atPath: compiled.path)
+    if !stale,
+       let a = (try? fm.attributesOfItem(atPath: src.path))?[.modificationDate] as? Date,
+       let b = (try? fm.attributesOfItem(atPath: compiled.path))?[.modificationDate] as? Date,
+       a > b {
+      stale = true
+    }
+    if stale {
+      let tmp = try MLModel.compileModel(at: src)
+      try? fm.removeItem(at: compiled)
+      do {
+        try fm.moveItem(at: tmp, to: compiled)
+      } catch {
+        try fm.copyItem(at: tmp, to: compiled)
+        try? fm.removeItem(at: tmp)
+      }
+    }
+    let cfg = MLModelConfiguration()
+    // Tam duyarlık (fp32) için Neural Engine kullanılmaz; ONNX Runtime CPU ile aynı sonuç.
+    cfg.computeUnits = .cpuAndGPU
+    let m = try MLModel(contentsOf: compiled, configuration: cfg)
+    models[path] = m
+    return m
+  }
+
+  /// Çok boyutlu diziyi (her veri türü/adım düzeni) C sırasında Float32 dizisine çevirir.
+  private func floats(_ a: MLMultiArray) -> [Float] {
+    let shape = a.shape.map { $0.intValue }
+    let strides = a.strides.map { $0.intValue }
+    let n = shape.reduce(1, *)
+    var out = [Float](repeating: 0, count: n)
+    if n == 0 { return out }
+    // read(bellek ofseti, mantıksal sıra)
+    let read: (Int, Int) -> Float
+    switch a.dataType {
+    case .double:
+      let p = a.dataPointer.bindMemory(to: Double.self, capacity: 1)
+      read = { off, _ in Float(p[off]) }
+    case .int32:
+      let p = a.dataPointer.bindMemory(to: Int32.self, capacity: 1)
+      read = { off, _ in Float(p[off]) }
+    case .float32:
+      let p = a.dataPointer.bindMemory(to: Float.self, capacity: 1)
+      read = { off, _ in p[off] }
+    default:
+      // ör. float16 (iOS 16+): NSNumber üzerinden mantıksal sırayla.
+      read = { _, i in a[i].floatValue }
+    }
+    var contiguous = true
+    var expect = 1
+    for d in stride(from: shape.count - 1, through: 0, by: -1) {
+      if shape[d] > 1 && strides[d] != expect { contiguous = false }
+      expect *= shape[d]
+    }
+    if contiguous && a.dataType == .float32 {
+      let p = a.dataPointer.bindMemory(to: Float.self, capacity: n)
+      out.withUnsafeMutableBufferPointer { $0.baseAddress!.update(from: p, count: n) }
+      return out
+    }
+    var idx = [Int](repeating: 0, count: shape.count)
+    for i in 0..<n {
+      var off = 0
+      for d in 0..<shape.count { off += idx[d] * strides[d] }
+      out[i] = read(off, i)
+      var d = shape.count - 1
+      while d >= 0 {
+        idx[d] += 1
+        if idx[d] < shape[d] { break }
+        idx[d] = 0
+        d -= 1
+      }
+    }
+    return out
+  }
+
+  /// "onnxRun" kanal yöntemi: aynı girdi (düz Float32 + şekil) ve çıktı
+  /// (ilk çıktının düz Float32 verisi), iOS'ta Core ML ile.
   private func onnxRun(_ a: [String: Any], _ result: @escaping FlutterResult) {
-    guard let model = a["model"] as? String,
+    guard let path = a["model"] as? String,
           let input = a["input"] as? FlutterStandardTypedData,
           let dims = a["shape"] as? [Any] else {
       result(FlutterError(code: "onnx", message: "arguments", details: nil))
       return
     }
-    let shape: [NSNumber] = dims.map { NSNumber(value: Int64("\($0)") ?? 1) }
+    let shape: [Int] = dims.map { Int("\($0)") ?? 1 }
     work.async {
       do {
-        if self.ortEnv == nil { self.ortEnv = try ORTEnv(loggingLevel: ORTLoggingLevel.warning) }
-        guard let env = self.ortEnv else { throw MedyaError("env") }
-        let session: ORTSession
-        if let s = self.sessions[model] {
-          session = s
-        } else {
-          session = try ORTSession(env: env, modelPath: model, sessionOptions: nil)
-          self.sessions[model] = session
+        let model = try self.coreMLModel(path)
+        let desc = model.modelDescription
+        let inName = desc.inputDescriptionsByName["input"] != nil ? "input" : desc.inputDescriptionsByName.keys.sorted().first
+        let outName = desc.outputDescriptionsByName["output"] != nil ? "output" : desc.outputDescriptionsByName.keys.sorted().first
+        guard let inKey = inName, let outKey = outName else { throw MedyaError("names") }
+        let count = shape.reduce(1, *)
+        guard input.data.count >= count * 4 else { throw MedyaError("input") }
+        let arr = try MLMultiArray(shape: shape.map { NSNumber(value: $0) }, dataType: .float32)
+        let strides = arr.strides.map { $0.intValue }
+        let dst = arr.dataPointer.bindMemory(to: Float.self, capacity: 1)
+        input.data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+          let srcp = raw.bindMemory(to: Float.self)
+          var idx = [Int](repeating: 0, count: shape.count)
+          for i in 0..<count {
+            var off = 0
+            for d in 0..<shape.count { off += idx[d] * strides[d] }
+            dst[off] = srcp[i]
+            var d = shape.count - 1
+            while d >= 0 {
+              idx[d] += 1
+              if idx[d] < shape[d] { break }
+              idx[d] = 0
+              d -= 1
+            }
+          }
         }
-        guard let inName = try session.inputNames().first,
-              let outName = try session.outputNames().first else { throw MedyaError("names") }
-        let tensor = try ORTValue(
-          tensorData: NSMutableData(data: input.data), elementType: ORTTensorElementDataType.float, shape: shape)
-        let outs = try session.run(withInputs: [inName: tensor], outputNames: Set([outName]), runOptions: nil)
-        guard let o = outs[outName] else { throw MedyaError("output") }
-        let data = try o.tensorData() as Data
+        let feats = try MLDictionaryFeatureProvider(dictionary: [inKey: MLFeatureValue(multiArray: arr)])
+        let out = try model.prediction(from: feats)
+        guard let o = out.featureValue(for: outKey)?.multiArrayValue else { throw MedyaError("output") }
+        let data = self.floats(o).withUnsafeBufferPointer { Data(buffer: $0) }
         DispatchQueue.main.async { result(FlutterStandardTypedData(float32: data)) }
       } catch {
         DispatchQueue.main.async {

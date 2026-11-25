@@ -24,7 +24,7 @@ kalan `ffmpeg_kit` yerine işletim sisteminin kendi çatıları kullanılır:
 | Fotoğraflardan video (slayt, zaman atlamalı) | Media3 Transformer (görsel girdisi) | AVAssetWriter |
 | Ses çözme (her biçim → WAV) | MediaExtractor + MediaCodec | AVAssetReader |
 | Videodan kare alma (GIF) | MediaMetadataRetriever | AVAssetImageGenerator |
-| ONNX modelleri | ONNX Runtime Android 1.22.0 | onnxruntime-objc |
+| Yapay zekâ modelleri | ONNX Runtime Android 1.22.0 (.onnx) | Core ML (.mlmodel) |
 | Zil sesi olarak ekleme | MediaStore "Ringtones" (Android 10+, izinsiz) | — (paylaşım + GarageBand ipucu) |
 
 Android Java ile yazıldı (Kotlin eklentisi yok): AGP 8 ve AGP 9 ile uyumlu. Media3 sürümü
@@ -37,10 +37,18 @@ ses (WAV) ve müzik araçları web'de de çalışır; GIF web'de fotoğraflardan
 
 | Model | Kullanım | Lisans | Boyut | Kaynak |
 | --- | --- | --- | --- | --- |
-| U²-Netp (`assets/models/u2netp.onnx`) | Arka plan silme | Apache-2.0 (U-2-Net) | 4,6 MB, gömülü | https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx |
-| Real-ESRGAN general-x4v3 (`assets/models/realesr_general_x4v3.onnx`) | ×4 iyileştirme | BSD-3-Clause | 4,9 MB, gömülü | Resmî ağırlık https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth → `tool/convert_models.py` ile ONNX (opset 17) |
+| U²-Netp (`u2netp.onnx` / `.mlmodel`) | Arka plan silme | Apache-2.0 (U-2-Net) | ~5 MB, ilk kullanımda indirilir | https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx (SHA-256 `309c8469…`) |
+| Real-ESRGAN general-x4v3 (`realesr_general_x4v3.onnx` / `.mlmodel`) | ×4 iyileştirme | BSD-3-Clause | ~5 MB, ilk kullanımda indirilir | Resmî ağırlık https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth (SHA-256 `8dc7edb9…`) → `tool/convert_models.py` |
 | whisper.cpp tiny (`ggml-tiny.bin`) | Otomatik altyazı | MIT | ~75 MB, ilk kullanımda indirilir | https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin |
-| Zhang ECCV16 renklendirme | Deneysel renklendirme | BSD-2-Clause | ~129 MB, isteğe bağlı indirme | Resmî ağırlık https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v1-9b330a0b.pth → `python tool/convert_models.py --eccv16 <pth> colorization_eccv16.onnx` → bu deponun `models-v1` sürüm ekine yüklenmeli (`Models.colorizeUrl`) |
+| Zhang ECCV16 renklendirme (`colorization_eccv16.onnx` / `.mlmodel`) | Deneysel renklendirme | BSD-2-Clause | ~129 MB, isteğe bağlı indirme | Resmî ağırlık `colorization_release_v1-9b330a0b.pth` (SHA-256 `9b330a0b…`) → `tool/convert_models.py` |
+
+Modeller uygulamaya gömülmez. `.github/workflows/models.yml` kaynakları SHA-256 ile
+doğrular, Android için ONNX'i, iOS için `coremltools` ile Core ML (`.mlmodel`,
+NeuralNetwork, iOS 14+) dosyasını üretip bu deponun `models-v1` sürümüne ekler ve
+macOS'ta Core ML çıktısını ONNX Runtime ile karşılaştırır. Uygulama modeli ilk
+kullanımda bir kez indirir (`Models`, sürüm eklerinin SHA-256 değerleri sabit), sonra
+internetsiz çalışır. Android ONNX Runtime, iOS Core ML kullanır (ONNX Runtime iOS
+pod'u yok); iki platformda girdi/çıktı tensörleri ve Dart ön/son işleme aynıdır.
 
 Yüz bulma ve plaka benzeri yazı bulma Google ML Kit ile cihazda yapılır (Android/iOS);
 web'de bu araç yalnızca elle bulanıklaştırma sunar.

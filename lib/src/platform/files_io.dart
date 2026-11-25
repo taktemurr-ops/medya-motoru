@@ -5,6 +5,7 @@ library;
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -161,29 +162,46 @@ class MediaFiles {
     }
   }
 
-  /// Dosya indirir; 0..1 ilerleme yayar. Yarım kalan indirme .part dosyasında tutulur.
-  static Stream<double> download(String url, String target) async* {
+  /// Dosya indirir; 0..1 ilerleme yayar. Yarım kalan indirme .part dosyasında
+  /// tutulur ve yalnız eksiksiz (ve [sha256] verildiyse özeti tutan) dosya
+  /// hedefe taşınır; aksi hâlde .part silinir ve hata fırlatılır.
+  static Stream<double> download(String url, String target, {String? sha256}) async* {
     final part = File('$target.part');
     final client = HttpClient();
+    var moved = false;
     try {
       final res = await (await client.getUrl(Uri.parse(url))).close();
       if (res.statusCode != 200) throw HttpException('HTTP ${res.statusCode}');
       final total = res.contentLength;
       final sink = part.openWrite();
+      final digest = _DigestSink();
+      final hasher = crypto.sha256.startChunkedConversion(digest);
       var got = 0;
       try {
         await for (final chunk in res) {
           sink.add(chunk);
+          hasher.add(chunk);
           got += chunk.length;
           if (total > 0) yield got / total;
         }
       } finally {
         await sink.close();
+        hasher.close();
+      }
+      if (total > 0 && got != total) throw const HttpException('incomplete');
+      if (sha256 != null && digest.value?.toString() != sha256.toLowerCase()) {
+        throw const HttpException('sha256');
       }
       await part.rename(target);
+      moved = true;
       yield 1.0;
     } finally {
       client.close(force: true);
+      if (!moved) {
+        try {
+          if (await part.exists()) await part.delete();
+        } catch (_) {}
+      }
     }
   }
 
@@ -195,4 +213,14 @@ class MediaFiles {
     final p = await writeTemp(bytes, ext);
     return p == null ? null : VideoPlayerController.file(File(p));
   }
+}
+
+class _DigestSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+
+  @override
+  void add(crypto.Digest data) => value = data;
+
+  @override
+  void close() {}
 }

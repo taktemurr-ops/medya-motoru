@@ -1,7 +1,9 @@
 /// Cihaz üzerinde yapay zekâ araçları: arka plan silme (U²-Netp), fotoğraf
-/// iyileştirme (Real-ESRGAN x4v3), renklendirme (ECCV16, deneysel, isteğe
-/// bağlı indirme), yüz/plaka bulanıklaştırma (ML Kit + elle) ve otomatik
-/// altyazı (whisper.cpp tiny, ilk kullanımda indirilir).
+/// iyileştirme (Real-ESRGAN x4v3), renklendirme (ECCV16, deneysel), yüz/plaka
+/// bulanıklaştırma (ML Kit + elle) ve otomatik altyazı (whisper.cpp tiny).
+/// Modeller uygulamaya gömülmez: ilk kullanımda bir kez indirilir (SHA-256
+/// doğrulamalı), sonra internetsiz çalışır. Android ONNX Runtime ile .onnx,
+/// iOS Core ML ile .mlmodel çalıştırır; girdi/çıktı tensörleri aynıdır.
 library;
 
 import 'dart:async';
@@ -10,7 +12,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:studio_core/apps/apps.dart';
 
 import '../common.dart';
@@ -22,40 +23,130 @@ import '../platform/speech.dart';
 import '../platform/vision.dart';
 import 'photo.dart' show swatchRow, kSwatches;
 
-/// Modeller: ikisi uygulamaya gömülü, renklendirme isteğe bağlı indirilir.
+/// İndirilebilir model: Android'de ONNX, iOS'ta Core ML sürümü.
+class AiModel {
+  /// Dosya adı (uzantısız), örn. `u2netp`.
+  final String name;
+
+  /// Kullanıcıya gösterilen yaklaşık indirme boyutu (MB).
+  final int mb;
+
+  /// `models-v1` sürüm eklerinin SHA-256 özetleri.
+  final String onnxSha256, coremlSha256;
+
+  const AiModel(this.name, this.mb, {required this.onnxSha256, required this.coremlSha256});
+}
+
+/// Modeller: hepsi `models-v1` sürümünden ilk kullanımda indirilir.
 class Models {
-  static const String u2netp = 'packages/medya_motoru/assets/models/u2netp.onnx';
-  static const String esrgan = 'packages/medya_motoru/assets/models/realesr_general_x4v3.onnx';
+  static const String base = 'https://github.com/taktemurr-ops/medya-motoru/releases/download/models-v1';
 
-  /// ECCV16 renklendirme ağının ONNX hâli (tool/convert_models.py ile resmî
-  /// richzhang/colorization ağırlığından üretilir ve sürüm eki olarak yayınlanır).
-  static const String colorizeUrl =
-      'https://github.com/taktemurr-ops/medya-motoru/releases/download/models-v1/colorization_eccv16.onnx';
-  static const int colorizeMb = 129;
+  /// U²-Netp (Apache-2.0), 1×3×320×320 → 1×1×320×320.
+  static const AiModel u2netp = AiModel('u2netp', 5,
+      onnxSha256: '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8',
+      coremlSha256: 'ed9342158e48f5d5803384427eed6869a3d3810161ab2217669141f03db7d251');
 
-  /// Gömülü modeli uygulama klasörüne bir kez yazar ve yolunu döndürür.
-  static Future<String?> asset(String key) async {
+  /// Real-ESRGAN general-x4v3 (BSD-3-Clause), 1×3×H×W → 1×3×4H×4W.
+  static const AiModel esrgan = AiModel('realesr_general_x4v3', 5,
+      onnxSha256: '3439a9e4cd26c4cdfff28f82f00411a7a4f06e7f72a1efdc664479f1e2bf0690',
+      coremlSha256: '5ff7e81ed0c98a589c797088cde2b45a609912c4c86e6f3037cba3a7f3979869');
+
+  /// Zhang ECCV16 renklendirme (BSD-2-Clause, deneysel), 1×1×256×256 → 1×2×256×256.
+  static const AiModel colorize = AiModel('colorization_eccv16', 129,
+      onnxSha256: 'bfbca0aa1394fe7315fd6e59a3201d3e8a260a310d432f7c021cf9228ed2e5f3',
+      coremlSha256: '68033544edaf0b8ea9a3664e3795d65846efe778085366c80085342e0365d014');
+
+  static const List<AiModel> all = [u2netp, esrgan, colorize];
+
+  /// iOS'ta Core ML (.mlmodel), diğer yerlerde ONNX Runtime (.onnx).
+  static bool get coreml => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  static String file(AiModel m) => '${m.name}.${coreml ? 'mlmodel' : 'onnx'}';
+  static String url(AiModel m) => '$base/${file(m)}';
+  static String sha256(AiModel m) => coreml ? m.coremlSha256 : m.onnxSha256;
+
+  static Future<String?> path(AiModel m) async {
     final dir = await MediaFiles.appDir('models');
-    if (dir == null) return null;
-    final path = '$dir/${key.split('/').last}';
-    if (await MediaFiles.exists(path) && await MediaFiles.size(path) > 1024) return path;
-    try {
-      final data = await rootBundle.load(key);
-      final ok = await MediaFiles.write(path, data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
-      return ok ? path : null;
-    } catch (_) {
-      return null;
-    }
+    return dir == null ? null : '$dir/${file(m)}';
   }
 
-  static Future<String?> colorizePath() async {
-    final dir = await MediaFiles.appDir('models');
-    return dir == null ? null : '$dir/colorization_eccv16.onnx';
+  /// Model indirilmiş mi? (Eski sürümlerin gömülü modelden çıkardığı aynı adlı
+  /// .onnx dosyaları da geçerlidir.)
+  static Future<bool> ready(AiModel m) async {
+    final p = await path(m);
+    return p != null && await MediaFiles.exists(p) && await MediaFiles.size(p) > 1024 * 1024;
   }
 
-  static Future<bool> hasColorize() async {
-    final p = await colorizePath();
-    return p != null && await MediaFiles.exists(p) && await MediaFiles.size(p) > 50 * 1024 * 1024;
+  /// Modeli indirir (SHA-256 doğrulamalı); 0..1 ilerleme yayar.
+  static Stream<double> download(AiModel m) async* {
+    final p = await path(m);
+    if (p == null) throw StateError('dir');
+    yield* MediaFiles.download(url(m), p, sha256: sha256(m));
+  }
+}
+
+/// Model gerektiren araçlar için ortak indirme akışı (renklendirmedeki ile aynı
+/// kullanıcı deneyimi): model yoksa boyutuyla "Modeli indir" düğmesi ve ilerleme.
+mixin _ModelGate<T extends StatefulWidget> on State<T> {
+  AiModel get model;
+  ToolContext get t;
+  bool? hasModel;
+  double? dl;
+  StreamSubscription<double>? _dlSub;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(Models.ready(model).then((v) {
+      if (mounted) setState(() => hasModel = v);
+    }));
+  }
+
+  @override
+  void dispose() {
+    unawaited(_dlSub?.cancel());
+    super.dispose();
+  }
+
+  void _downloadModel() {
+    setState(() => dl = 0);
+    _dlSub = Models.download(model).listen(
+      (p) {
+        if (mounted) setState(() => dl = p);
+      },
+      onError: (Object _) {
+        if (mounted) {
+          setState(() => dl = null);
+          snack(context, L(t, 'failed'));
+        }
+      },
+      onDone: () async {
+        final ok = await Models.ready(model);
+        if (mounted) {
+          setState(() {
+            dl = null;
+            hasModel = ok;
+          });
+        }
+      },
+      cancelOnError: true,
+    );
+  }
+
+  /// Model hazır değilse gösterilecek satırlar (hazırsa boş).
+  List<Widget> modelGate() {
+    final has = hasModel;
+    if (has == true) return const [];
+    if (has == null) return const [Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))];
+    return [
+      if (dl != null)
+        BusyLine(L(t, 'downloading'), progress: dl)
+      else
+        ActionRow([
+          AppButton(label: L(t, 'model_download', {'mb': model.mb}), icon: Icons.download_rounded, onPressed: _downloadModel),
+        ]),
+      AppInfoCard(L(t, 'model_once'), icon: Icons.wifi_off_rounded),
+    ];
   }
 }
 
@@ -91,13 +182,17 @@ class BackgroundTool extends StatefulWidget {
   State<BackgroundTool> createState() => _BackgroundState();
 }
 
-class _BackgroundState extends State<BackgroundTool> {
+class _BackgroundState extends State<BackgroundTool> with _ModelGate<BackgroundTool> {
+  @override
+  AiModel get model => Models.u2netp;
+
   ui.Image? _src;
   ui.Image? _cut;
   Rgba? _cutRgba;
   int _bg = -1; // -1: saydam
   bool _busy = false;
 
+  @override
   ToolContext get t => widget.t;
 
   Future<void> _pick() async {
@@ -109,7 +204,7 @@ class _BackgroundState extends State<BackgroundTool> {
       _busy = true;
     });
     try {
-      final model = await Models.asset(Models.u2netp);
+      final model = await Models.path(Models.u2netp);
       if (model == null) throw StateError('model');
       final out = await MedyaNative.onnx(model, u2Input(r.rgba), const [1, 3, kU2Size, kU2Size]);
       if (out == null || out.length < kU2Size * kU2Size) throw StateError('onnx');
@@ -154,6 +249,7 @@ class _BackgroundState extends State<BackgroundTool> {
   @override
   Widget build(BuildContext context) {
     if (!MedyaNative.supported) return ToolList(children: [notAvailable(t), AppInfoCard(L(t, 'ai_local'))]);
+    if (hasModel != true) return ToolList(children: [...modelGate(), AppInfoCard(L(t, 'ai_local'), icon: Icons.lock_rounded)]);
     final cut = _cut, src = _src;
     return ToolList(children: [
       if (src == null)
@@ -211,13 +307,17 @@ class EnhanceTool extends StatefulWidget {
   State<EnhanceTool> createState() => _EnhanceState();
 }
 
-class _EnhanceState extends State<EnhanceTool> {
+class _EnhanceState extends State<EnhanceTool> with _ModelGate<EnhanceTool> {
+  @override
+  AiModel get model => Models.esrgan;
+
   ui.Image? _src;
   ui.Image? _out;
   Rgba? _outRgba;
   bool _busy = false, _showOriginal = false;
   double _progress = 0;
 
+  @override
   ToolContext get t => widget.t;
   static const int _tile = 128, _overlap = 8, _scale = 4;
 
@@ -231,7 +331,7 @@ class _EnhanceState extends State<EnhanceTool> {
       _progress = 0;
     });
     try {
-      final model = await Models.asset(Models.esrgan);
+      final model = await Models.path(Models.esrgan);
       if (model == null) throw StateError('model');
       final src = r.rgba;
       final dst = Rgba(src.width * _scale, src.height * _scale, Uint8List(src.width * _scale * src.height * _scale * 4));
@@ -272,6 +372,7 @@ class _EnhanceState extends State<EnhanceTool> {
   @override
   Widget build(BuildContext context) {
     if (!MedyaNative.supported) return ToolList(children: [notAvailable(t)]);
+    if (hasModel != true) return ToolList(children: [...modelGate(), AppInfoCard(L(t, 'ai_local'), icon: Icons.lock_rounded)]);
     final src = _src, out = _out;
     return ToolList(children: [
       if (src == null)
@@ -306,56 +407,16 @@ class ColorizeTool extends StatefulWidget {
   State<ColorizeTool> createState() => _ColorizeState();
 }
 
-class _ColorizeState extends State<ColorizeTool> {
-  bool? _hasModel;
-  double? _dl;
+class _ColorizeState extends State<ColorizeTool> with _ModelGate<ColorizeTool> {
+  @override
+  AiModel get model => Models.colorize;
+
   ui.Image? _src, _out;
   Rgba? _outRgba;
   bool _busy = false;
-  StreamSubscription<double>? _sub;
 
+  @override
   ToolContext get t => widget.t;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(Models.hasColorize().then((v) {
-      if (mounted) setState(() => _hasModel = v);
-    }));
-  }
-
-  @override
-  void dispose() {
-    unawaited(_sub?.cancel());
-    super.dispose();
-  }
-
-  Future<void> _download() async {
-    final path = await Models.colorizePath();
-    if (path == null) return;
-    setState(() => _dl = 0);
-    _sub = MediaFiles.download(Models.colorizeUrl, path).listen(
-      (p) {
-        if (mounted) setState(() => _dl = p);
-      },
-      onError: (Object _) {
-        if (mounted) {
-          setState(() => _dl = null);
-          snack(context, L(t, 'failed'));
-        }
-      },
-      onDone: () async {
-        final ok = await Models.hasColorize();
-        if (mounted) {
-          setState(() {
-            _dl = null;
-            _hasModel = ok;
-          });
-        }
-      },
-      cancelOnError: true,
-    );
-  }
 
   Future<void> _pick() async {
     final r = await pickForAi();
@@ -366,7 +427,7 @@ class _ColorizeState extends State<ColorizeTool> {
       _busy = true;
     });
     try {
-      final model = await Models.colorizePath();
+      final model = await Models.path(Models.colorize);
       if (model == null) throw StateError('model');
       final out = await MedyaNative.onnx(model, lightnessInput(r.rgba), const [1, 1, kColorSize, kColorSize]);
       if (out == null || out.length < 2 * kColorSize * kColorSize) throw StateError('onnx');
@@ -393,25 +454,13 @@ class _ColorizeState extends State<ColorizeTool> {
   @override
   Widget build(BuildContext context) {
     if (!MedyaNative.supported) return ToolList(children: [notAvailable(t)]);
-    final has = _hasModel;
+    final has = hasModel;
     final src = _src, out = _out;
     return ToolList(children: [
       AppInfoCard(L(t, 'experimental'), icon: Icons.science_rounded),
-      if (has == null)
-        const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
-      else if (!has) ...[
-        if (_dl != null)
-          BusyLine(L(t, 'downloading'), progress: _dl)
-        else
-          ActionRow([
-            AppButton(
-              label: L(t, 'model_download', {'mb': Models.colorizeMb}),
-              icon: Icons.download_rounded,
-              onPressed: _download,
-            ),
-          ]),
-        AppInfoCard(L(t, 'model_once'), icon: Icons.wifi_off_rounded),
-      ] else ...[
+      if (has != true)
+        ...modelGate()
+      else ...[
         if (src == null)
           PickPrompt(label: L(t, 'pick_photo'), icon: Icons.palette_rounded, onTap: _busy ? null : _pick)
         else
