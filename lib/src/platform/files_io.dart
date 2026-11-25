@@ -46,7 +46,7 @@ class MediaFiles {
       final safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
       final f = File('${dir.path}${Platform.pathSeparator}$safe');
       await f.writeAsBytes(bytes, flush: true);
-      return sharePath(f.path, mime);
+      return await sharePath(f.path, mime);
     } catch (_) {
       return false;
     }

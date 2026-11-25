@@ -505,7 +505,7 @@ class _SlideshowState extends State<SlideshowTool> {
     }
     if (!mounted) return;
     if (ok) {
-      final saved = await MediaFiles.saveVideo(out!, 'slayt_${stamp()}.mp4');
+      final saved = await MediaFiles.saveVideo(out, 'slayt_${stamp()}.mp4');
       if (mounted) snack(context, L(t, saved ? 'saved' : 'save_failed'));
     } else {
       snack(context, L(t, 'failed'));

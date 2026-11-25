@@ -1156,7 +1156,7 @@ class _AudioConverterState extends State<AudioConverterTool> {
     if (src == null && bytes != null) src = await MediaFiles.writeTemp(bytes, f.name.split('.').last);
     final out = await MediaFiles.tempPath('m4a');
     final ok = src != null && out != null && await MedyaNative.encodeM4a(src, out);
-    final b = ok ? await MediaFiles.read(out!) : null;
+    final b = ok ? await MediaFiles.read(out) : null;
     if (!mounted) return;
     if (b == null) {
       snack(context, L(t, 'failed'));
