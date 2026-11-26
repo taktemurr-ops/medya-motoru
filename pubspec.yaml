@@ -42,7 +42,7 @@ dependencies:
   # whisper.cpp (MIT) – otomatik altyazı; model ilk kullanımda indirilir.
   whisper_ggml: ^2.10.0
   # Podcast RSS/Atom ve OPML ayrıştırma (MIT).
-  xml: ^6.5.0
+  xml: ">=6.5.0 <8.0.0"
 
 dev_dependencies:
   flutter_test:
