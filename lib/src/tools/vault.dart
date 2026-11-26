@@ -26,6 +26,7 @@ import '../common.dart';
 import '../media_core.dart';
 import '../native.dart';
 import '../platform/files.dart';
+import '../secure_window.dart';
 import 'video.dart' show VideoPreview;
 
 /// En büyük video (bellekte şifrelendiği için).
@@ -41,6 +42,12 @@ Future<Uint8List?> _unlockJob((String, String) a) async {
 Future<(String, Uint8List)> _createJob(String password) async {
   final (h, k) = await createVault(password);
   return (h.toJson(), k);
+}
+
+/// Eski kasayı güncel PBKDF2 tur sayısına yükseltir (aynı parola, yeni tuz).
+Future<String?> _upgradeJob((String, Uint8List, String) a) async {
+  final h = VaultHeader.fromJson(a.$1);
+  return h == null ? null : (await rewrapVault(h, a.$2, a.$3, iterations: kVaultIterations)).toJson();
 }
 
 Future<String?> _rewrapJob((String, Uint8List, String) a) async {
@@ -122,6 +129,8 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
       return;
     }
     _dir = d;
+    // Önceki oturumdan kalmış çözülmüş geçici dosyalar (uygulama kapanmış olabilir).
+    await _wipePlain();
     final h = await MediaFiles.read(_f('header.json'));
     _fails = await t.store.readInt('fails');
     final until = await t.store.readInt('wait_until');
@@ -253,8 +262,15 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
     });
   }
 
+  /// Görüntüleme için çözülmüş video ve kare dosyalarını siler.
+  Future<void> _wipePlain() async {
+    final tmp = await MediaFiles.appDir('gizli_album_tmp');
+    if (tmp != null) await MediaFiles.clearDir(tmp);
+  }
+
   void _lock() {
     if (_stage != _Stage.open) return;
+    unawaited(_wipePlain());
     _key = null;
     _thumbs.clear();
     _items = [];
@@ -302,7 +318,8 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
       _busy = true;
       _msg = null;
     });
-    final key = await compute(_unlockJob, (_header!, _p1.text));
+    final pw = _p1.text;
+    final key = await compute(_unlockJob, (_header!, pw));
     if (!mounted) return;
     if (key == null) {
       _fails++;
@@ -323,6 +340,12 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
     await t.store.write('fails', '0');
     _key = key;
     _p1.clear();
+    // Eski kasa: daha güçlü anahtar türetmeye yükselt (veri anahtarı aynı kalır).
+    final cur = VaultHeader.fromJson(_header!);
+    if (cur != null && vaultNeedsUpgrade(cur)) {
+      final nh = await compute(_upgradeJob, (_header!, key, pw));
+      if (nh != null && await MediaFiles.write(_f('header.json'), Uint8List.fromList(utf8.encode(nh)))) _header = nh;
+    }
     await _loadIndex();
     if (mounted) {
       setState(() {
@@ -512,7 +535,9 @@ class _VaultState extends State<VaultTool> with WidgetsBindingObserver {
       );
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SecureCurtain(child: _content(context));
+
+  Widget _content(BuildContext context) {
     switch (_stage) {
       case _Stage.loading:
         return const Center(child: CircularProgressIndicator());
@@ -689,8 +714,11 @@ class _VaultViewerState extends State<_VaultViewer> {
     _cache[it.id] = b;
     if (it.video) {
       final ext = it.name.contains('.') ? it.name.split('.').last : 'mp4';
-      final p = await MediaFiles.writeTemp(b, ext);
-      if (p != null) _videoFiles[it.id] = p;
+      // Çözülmüş video yalnızca kasanın kendi geçici klasörüne yazılır; kasa
+      // kilitlenince ve bir sonraki açılışta silinir.
+      final dir = await MediaFiles.appDir('gizli_album_tmp');
+      final p = dir == null ? null : '$dir/play_${it.id}.$ext';
+      if (p != null && await MediaFiles.write(p, b)) _videoFiles[it.id] = p;
     }
     if (mounted) setState(() {});
   }
@@ -717,7 +745,9 @@ class _VaultViewerState extends State<_VaultViewer> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => SecureCurtain(child: _content(context));
+
+  Widget _content(BuildContext context) {
     if (widget.items.isEmpty) return const Scaffold();
     return Scaffold(
       backgroundColor: Colors.black,

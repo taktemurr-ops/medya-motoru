@@ -441,6 +441,18 @@ void main() {
       expect(lockoutFor(100), const Duration(seconds: 900));
     });
 
+    test('kasa: eski tur sayısı yükseltilir; aşırı tur ve kısa tuz reddedilir', () async {
+      final (h, key) = await createVault('1234', iterations: 1000);
+      expect(vaultNeedsUpgrade(h), isTrue);
+      final up = await rewrapVault(h, key, '1234', iterations: 2000);
+      expect(up.iterations, 2000);
+      expect(await unlockVault(up, '1234'), key);
+      final j = jsonDecode(h.toJson()) as Map<String, dynamic>;
+      expect(VaultHeader.fromJson(jsonEncode({...j, 'it': 999999999})), isNull);
+      expect(VaultHeader.fromJson(jsonEncode({...j, 'salt': base64Encode([1, 2, 3])})), isNull);
+      expect(kVaultIterations, greaterThanOrEqualTo(310000));
+    });
+
     test('kasa: biyometrik açma anahtarı sır ile sarılır, parola asıl kalır', () async {
       final (h, key) = await createVault('1234', iterations: 1000);
       expect(await checkVaultKey(h, key), isTrue);

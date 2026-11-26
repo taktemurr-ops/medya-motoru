@@ -17,6 +17,7 @@ class MediaFiles {
   static Future<void> delete(String path) async {}
   static Future<String?> appDir(String sub) async => null;
   static Future<List<String>> list(String dir, String ext) async => const [];
+  static Future<void> clearDir(String dir) async {}
   static Future<String?> rename(String path, String newName) async => null;
   static Future<int> size(String path) async => 0;
   static Future<bool> write(String path, Uint8List bytes) async => false;

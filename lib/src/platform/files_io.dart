@@ -112,6 +112,19 @@ class MediaFiles {
     }
   }
 
+  /// Klasördeki bütün dosyaları siler (alt klasörlere dokunmaz).
+  static Future<void> clearDir(String dir) async {
+    try {
+      await for (final e in Directory(dir).list()) {
+        if (e is File) {
+          try {
+            await e.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
   static Future<List<String>> list(String dir, String ext) async {
     try {
       final out = <String>[];

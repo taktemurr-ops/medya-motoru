@@ -133,7 +133,15 @@ const List<double> kSpeeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0];
 
 /// Kasa biçimi sürümü ve parametreleri.
 const int kVaultVersion = 1;
-const int kVaultIterations = 120000;
+/// PBKDF2-HMAC-SHA256 tur sayısı (OWASP 2023: SHA-256 için en az 600.000;
+/// saf Dart'ta orta sınıf telefonda açılışı makul tutmak için 310.000).
+/// Daha az turla kurulmuş eski kasalar parolayla açılınca bu değere yükseltilir.
+const int kVaultIterations = 310000;
+
+/// Başlıktaki tur sayısının kabul edilen aralığı (değiştirilmiş başlıkla
+/// cihazı kilitleyecek kadar uzun türetme denenmez).
+const int kVaultMinIterations = 1000;
+const int kVaultMaxIterations = 5000000;
 const String _verifierText = 'gs100-vault-ok';
 
 final AesGcm _aes = AesGcm.with256bits();
@@ -187,13 +195,15 @@ class VaultHeader {
   static VaultHeader? fromJson(String raw) {
     try {
       final j = jsonDecode(raw) as Map<String, Object?>;
-      return VaultHeader(
+      final h = VaultHeader(
         (j['v'] as num).toInt(),
         (j['it'] as num).toInt(),
         base64Decode(j['salt'] as String),
         base64Decode(j['key'] as String),
         base64Decode(j['check'] as String),
       );
+      if (h.iterations < kVaultMinIterations || h.iterations > kVaultMaxIterations || h.salt.length < 16) return null;
+      return h;
     } catch (_) {
       return null;
     }
@@ -222,11 +232,15 @@ Future<Uint8List?> unlockVault(VaultHeader h, String password) async {
 }
 
 /// Parola değişimi: aynı veri anahtarı yeni tuz ve parolayla yeniden sarılır.
-Future<VaultHeader> rewrapVault(VaultHeader h, Uint8List dataKey, String newPassword) async {
+Future<VaultHeader> rewrapVault(VaultHeader h, Uint8List dataKey, String newPassword, {int? iterations}) async {
   final salt = _rand(16);
-  final pk = await deriveKey(newPassword, salt, iterations: h.iterations);
-  return VaultHeader(h.version, h.iterations, salt, await sealBytes(pk, dataKey), h.verifier);
+  final it = iterations ?? h.iterations;
+  final pk = await deriveKey(newPassword, salt, iterations: it);
+  return VaultHeader(h.version, it, salt, await sealBytes(pk, dataKey), h.verifier);
 }
+
+/// Kasa eski (daha az turlu) ayarla mı kurulmuş: parolayla açılınca yükseltilir.
+bool vaultNeedsUpgrade(VaultHeader h) => h.iterations < kVaultIterations;
 
 /// Veri anahtarının bu kasaya ait olduğunu doğrulayıcıyla denetler.
 Future<bool> checkVaultKey(VaultHeader h, List<int> dataKey) async {
