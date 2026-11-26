@@ -241,7 +241,10 @@ class _MusicPlayerState extends State<MusicPlayerTool> {
             Text(fmtClock(_pos.inMilliseconds / 1000), style: const TextStyle(color: Colors.white70)),
             Text(fmtClock(_dur.inMilliseconds / 1000), style: const TextStyle(color: Colors.white70)),
           ]),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          // Dar ekranda denetim düğmeleri sığacak kadar küçülür.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
             IconButton(
               tooltip: L(t, 'shuffle'),
               isSelected: _shuffle,
@@ -271,6 +274,7 @@ class _MusicPlayerState extends State<MusicPlayerTool> {
               icon: Icon(Icons.repeat_one_rounded, color: _repeat ? s.accent : Colors.white54),
             ),
           ]),
+          ),
         ]),
       ),
       if (_list.isEmpty) AppInfoCard(L(t, 'empty_list'), icon: Icons.queue_music_rounded),
