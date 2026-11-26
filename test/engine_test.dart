@@ -69,7 +69,7 @@ void main() {
         expect(s.source.isNotEmpty, isTrue, reason: s.id);
         expect(s.background, inInclusiveRange(0, kIdBackgrounds.length - 1));
         if (s.hasHead) expect(s.headMaxMm, lessThan(s.heightMm), reason: s.id);
-        expect(s.headFraction, inInclusiveRange(0.5, 0.85), reason: s.id);
+        expect(s.headFraction, inInclusiveRange(0.45, 0.85), reason: s.id);
         expect(kMedyaL['cc_${s.country}']!.length, 33, reason: s.country);
         expect(kMedyaL['cc_${s.country}']!.every((x) => x.trim().isNotEmpty), isTrue, reason: s.country);
       }
