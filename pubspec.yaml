@@ -1,5 +1,5 @@
 name: medya_motoru
-description: "Fotoğraf, Video ve Ses motoru: 45 çevrimdışı araç (fotoğraf, cihazda yapay zekâ, video, ses, müzik, tasarım)."
+description: "Fotoğraf, Video ve Ses motoru: 48 çevrimdışı araç (fotoğraf, cihazda yapay zekâ, video, ses, müzik, tasarım)."
 publish_to: none
 version: 1.0.0
 
@@ -41,6 +41,8 @@ dependencies:
   web: ^1.1.0
   # whisper.cpp (MIT) – otomatik altyazı; model ilk kullanımda indirilir.
   whisper_ggml: ^2.10.0
+  # Podcast RSS/Atom ve OPML ayrıştırma (MIT).
+  xml: ^6.5.0
 
 dev_dependencies:
   flutter_test:

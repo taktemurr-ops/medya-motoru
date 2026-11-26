@@ -41,9 +41,9 @@ Rgba gradient(int w, int h, {bool invert = false}) {
 }
 
 void main() {
-  test('45 araç, 33 dilde ad ve açıklama, geçerli kategori ve öne çıkanlar', () {
-    expect(medyaTools.length, 45);
-    expect(medyaTools.map((t) => t.id).toSet().length, 45);
+  test('48 araç, 33 dilde ad ve açıklama, geçerli kategori ve öne çıkanlar', () {
+    expect(medyaTools.length, 48);
+    expect(medyaTools.map((t) => t.id).toSet().length, 48);
     for (final t in medyaTools) {
       expect(t.title.length, 33, reason: t.id);
       expect(t.tagline.length, 33, reason: t.id);
@@ -57,6 +57,149 @@ void main() {
     expect(medyaHubTitle.length, 33);
     expect(medyaHubTagline.length, 33);
     expect(medyaCategories.length, 6);
+  });
+
+  group('4. tur: vesikalık, ekolayzır, podcast', () {
+    test('vesikalık şablonları geçerli ve 33 dilde ülke adı var', () {
+      expect(kIdPhotoSpecs.length, 20);
+      expect(kIdPhotoSpecs.map((s) => s.id).toSet().length, kIdPhotoSpecs.length);
+      for (final s in kIdPhotoSpecs) {
+        expect(s.widthMm, inInclusiveRange(20, 80), reason: s.id);
+        expect(s.heightMm, inInclusiveRange(20, 80), reason: s.id);
+        expect(s.source.isNotEmpty, isTrue, reason: s.id);
+        expect(s.background, inInclusiveRange(0, kIdBackgrounds.length - 1));
+        if (s.hasHead) expect(s.headMaxMm, lessThan(s.heightMm), reason: s.id);
+        expect(s.headFraction, inInclusiveRange(0.5, 0.85), reason: s.id);
+        expect(kMedyaL['cc_${s.country}']!.length, 33, reason: s.country);
+        expect(kMedyaL['cc_${s.country}']!.every((x) => x.trim().isNotEmpty), isTrue, reason: s.country);
+      }
+      final tr = kIdPhotoSpecs.firstWhere((s) => s.id == 'tr_passport');
+      expect(tr.sizeText, '50×60 mm');
+      expect(mmToPx(50), 591);
+      expect(mmToPx(25.4), 300);
+      for (final l in ['id_kinds', 'eq_presets']) {
+        expect(kMedyaL[l]!.length, 33);
+      }
+      for (final v in kMedyaL['id_kinds']!) {
+        expect(v.split(',').length, 3, reason: v);
+      }
+      for (final v in kMedyaL['eq_presets']!) {
+        expect(v.split(',').length, kEqPresetIds.length, reason: v);
+      }
+    });
+
+    test('yüz kutusundan kesim: belge oranında, baş oranı tutar', () {
+      const spec = IdPhotoSpec('x', 'TR', 0, 35, 45, headMinMm: 32, headMaxMm: 36, source: 's');
+      final c = idCropForFace(const Rect.fromLTWH(100, 200, 200, 260), spec);
+      expect(c.width / c.height, closeTo(35 / 45, 1e-9));
+      expect(c.center.dx, closeTo(200, 1e-9));
+      final headTop = 200 - 260 * 0.32;
+      expect((460 - headTop) / c.height, closeTo(spec.headFraction, 1e-9));
+      expect(c.top, lessThan(headTop));
+    });
+
+    test('baskı sayfası 10×15 cm içine sığar, çakışmaz', () {
+      for (final s in kIdPhotoSpecs) {
+        final slots = idSheetSlots(s);
+        expect(slots.isNotEmpty, isTrue, reason: s.id);
+        for (final (x, y) in slots) {
+          expect(x, greaterThanOrEqualTo(0));
+          expect(y, greaterThanOrEqualTo(0));
+          expect(x + s.widthMm, lessThanOrEqualTo(152.4 + 1e-9));
+          expect(y + s.heightMm, lessThanOrEqualTo(101.6 + 1e-9));
+        }
+      }
+      // 35×45 mm: 4 sütun × 2 satır.
+      expect(idSheetSlots(kIdPhotoSpecs.firstWhere((s) => s.id == 'gb_passport')).length, 8);
+    });
+
+    test('ekolayzır: düz ayar sesi değiştirmez, tepe filtre doğru frekansta', () {
+      expect(eqCurveDb(1000, List<double>.filled(10, 0), 0), closeTo(0, 1e-9));
+      final g = List<double>.filled(10, 0)..[5] = 6;
+      expect(eqCurveDb(1000, g, 0), closeTo(6, 0.05));
+      expect(eqCurveDb(16000, g, 0).abs(), lessThan(0.5));
+      expect(eqCurveDb(40, List<double>.filled(10, 0), 6), closeTo(6, 0.6));
+      expect(eqPreampDb(g, 0), closeTo(-6, 0.1));
+      expect(eqPreampDb(List<double>.filled(10, -3), 0), 0);
+      for (final id in kEqPresetIds) {
+        if (id == 'custom') continue;
+        final p = kEqPresets[id]!;
+        expect(p.$1.length, 10, reason: id);
+        expect(p.$1.every((v) => v.abs() <= kEqMaxDb), isTrue, reason: id);
+      }
+      expect(eqCurvePoints(g, 0).length, 31);
+      // 1 kHz sinüs +6 dB; ön kazanç (-6 dB) ile genlik korunur, kırpılmaz.
+      final s = sine(1000, 0.5, rate: 44100, amp: 0.5);
+      final out = applyEq((s, g, 0.0));
+      expect(out.samples.length, s.samples.length);
+      expect(peakOf(out), closeTo(0.5, 0.06));
+      // Düz ayar: aynı sinyal.
+      final flat = applyEq((s, List<double>.filled(10, 0), 0.0));
+      expect(peakOf(flat), closeTo(0.5, 0.01));
+      // Stereo: kanallar ayrı süzülür.
+      final st = Pcm(8000, 2, Float32List.fromList([for (var i = 0; i < 800; i++) i.isEven ? 0.3 : -0.3]));
+      final so = applyEq((st, List<double>.filled(10, 0), 0.0));
+      expect(so.samples[100], closeTo(0.3, 1e-6));
+      expect(so.samples[101], closeTo(-0.3, 1e-6));
+    });
+
+    test('podcast: RSS, Atom, OPML, süre ve tarih', () {
+      const rss = '''<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<channel><title>Deneme &amp; Yayın</title><itunes:author>Yazar</itunes:author>
+<itunes:image href="https://e.org/k.jpg"/>
+<item><title>Bölüm 2</title><guid>g2</guid><pubDate>Wed, 02 Oct 2024 13:00:00 +0200</pubDate>
+<itunes:duration>01:02:03</itunes:duration><description><![CDATA[<p>Merhaba <b>dünya</b></p>]]></description>
+<enclosure url="https://e.org/2.mp3" type="audio/mpeg" length="1"/></item>
+<item><title>Eksiz</title></item>
+<item><title>Bölüm 1</title><enclosure url="https://e.org/1.m4a" type="audio/mp4"/><itunes:duration>754</itunes:duration></item>
+</channel></rss>''';
+      final f = parseFeed('https://e.org/feed', rss)!;
+      expect(f.title, 'Deneme & Yayın');
+      expect(f.author, 'Yazar');
+      expect(f.image, 'https://e.org/k.jpg');
+      expect(f.episodes.length, 2);
+      expect(f.episodes[0].guid, 'g2');
+      expect(f.episodes[0].seconds, 3723);
+      expect(f.episodes[0].description, 'Merhaba dünya');
+      expect(f.episodes[0].published, DateTime.utc(2024, 10, 2, 11));
+      expect(f.episodes[1].guid, 'https://e.org/1.m4a');
+      expect(f.episodes[1].seconds, 754);
+      final back = PodcastEpisode.fromJson(f.episodes[0].toJson())!;
+      expect(back.title, 'Bölüm 2');
+      expect(back.published, f.episodes[0].published);
+
+      const atom = '''<feed xmlns="http://www.w3.org/2005/Atom"><title>A</title>
+<entry><id>e1</id><title>T</title><updated>2024-01-05T10:00:00Z</updated>
+<link rel="enclosure" href="https://e.org/a.ogg"/></entry></feed>''';
+      final a = parseFeed('https://e.org/atom', atom)!;
+      expect(a.episodes.single.url, 'https://e.org/a.ogg');
+      expect(a.episodes.single.published, DateTime.utc(2024, 1, 5, 10));
+
+      expect(parseFeed('u', 'bozuk <xml'), isNull);
+      expect(parseFeed('u', '<html><body/></html>'), isNull);
+      expect(isFeedUrl('https://x.org/f'), isTrue);
+      expect(isFeedUrl('file:///etc/passwd'), isFalse);
+      expect(isFeedUrl('javascript:alert(1)'), isFalse);
+
+      final opml = buildOpml([('Bir', 'https://a.org/r'), ('İki & üç', 'https://b.org/r')]);
+      final list = parseOpml(opml);
+      expect(list, [('Bir', 'https://a.org/r'), ('İki & üç', 'https://b.org/r')]);
+      expect(parseOpml('<opml><body><outline xmlUrl="ftp://x"/></body></opml>'), isEmpty);
+
+      expect(parseDuration('62:03'), 3723);
+      expect(parseDuration('abc'), 0);
+      expect(parseFeedDate('Tue, 10 Jun 2003 04:00:00 GMT'), DateTime.utc(2003, 6, 10, 4));
+      expect(parseFeedDate('Tue, 10 Jun 2003 04:00:00 PST'), DateTime.utc(2003, 6, 10, 12));
+      expect(parseFeedDate(''), isNull);
+      final n1 = episodeFileName('https://e.org/2.mp3?x=1');
+      expect(n1, matches(RegExp(r'^ep_[0-9a-f]{8}\.mp3$')));
+      expect(episodeFileName('https://e.org/play'), endsWith('.mp3'));
+      expect(episodeFileName('https://e.org/a/../b.MP3'), endsWith('.mp3'));
+      for (final k in ['pod_no_catalog', 'eq_system_note', 'eq_ios', 'id_no_guarantee', 'pod_web_note']) {
+        expect(kMedyaL[k]!.length, 33, reason: k);
+      }
+    });
   });
 
   group('modeller', () {
@@ -526,6 +669,7 @@ void main() {
     'uyg-slayt-gosterisi-video', 'uyg-arka-plan-silme', 'uyg-fotograf-iyilestirme',
     'uyg-yuz-ve-plaka-bulaniklastirma', 'uyg-ses-formati-donusturucu',
     'uyg-video-oynatici', 'uyg-gizli-album', 'uyg-ekran-kaydedici',
+    'uyg-vesikalik-fotograf', 'uyg-ekolayzir', 'uyg-podcast-oynatici',
   ]) {
     testWidgets('araç ekranı açılır: $id', (tester) async {
       final s = AppServices(hubId: 'm', backend: MemoryBackend(), ads: NoAdsService(), purchases: NoPurchaseService());

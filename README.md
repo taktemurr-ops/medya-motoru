@@ -1,6 +1,6 @@
 # medya-motoru
 
-Fotoğraf, Video ve Ses ailesinin motoru: 45 aracın gerçek uygulamaları, 33 dilde
+Fotoğraf, Video ve Ses ailesinin motoru: 48 aracın gerçek uygulamaları, 33 dilde
 metinleri ve merkez görünümü (onaylı oyun merkezi tasarımının mor-mercan "stüdyo" tonu).
 
 - Çatı: `studio_core/apps` (AppTool, merkez kabuğu, reklam/satın alma, gizlilik, favoriler).
@@ -65,6 +65,14 @@ Uygulama sesi (Android 10+) yalnız ses yakalamaya izin veren uygulamalardan al�
 `allowAudioPlaybackCapture=false` diyen uygulamalar, aramalar ve korumalı içerik kayıtta sessiz kalır
 (hiç ses gelmezse kullanıcıya bildirilir). Android 9 ve öncesinde ya da yakalayıcı kurulamazsa kayıt
 eski yoldan (MediaRecorder, isteğe bağlı mikrofon) sürer ve bu söylenir.
+
+## 4. tur araçları
+
+| Araç | Ne yapar | Platform |
+| --- | --- | --- |
+| Vesikalık ve biyometrik fotoğraf | 20 ülke/belge şablonu (TR pasaport/kimlik 50×60, ABD 2×2 inç, Birleşik Krallık, Schengen vizesi, Kanada 50×70, Çin 33×48, Vietnam 40×60 …) — ölçüler ve varsa baş yüksekliği resmî kaynaktan, kaynak adı ekranda; özel ölçü. ML Kit yüz bulma ile otomatik çerçeveleme + oval baş kılavuzu, elle kaydırma/yakınlaştırma; isteğe bağlı arka plan değiştirme (arka plan silme aracındaki U²-Netp modeli, beyaz/açık gri/kırık beyaz/açık mavi); 300 dpi tek fotoğraf ya da 10×15 cm baskı sayfası (kesim çizgili). "Kabul garantisi yoktur, güncel kuralları kontrol edin" uyarısı | Android, iOS; web'de yüz bulma ve arka plan değiştirme yok (elle çerçeveleme ve baskı sayfası çalışır) |
+| Ekolayzır ve bas güçlendirici | 10 bant (31 Hz–16 kHz, ±12 dB, RBJ tepe filtreleri) + bas rafı, 10 hazır ayar, eğri çizimi; seçilen dosya cihazda işlenir ve uygulama içi oynatıcıda çalar (ayar değişince aynı konumdan yeniden işlenir), işlenmiş ses kaydedilebilir (M4A/WAV). **Sistem geneli:** yalnız Android'de, ses oturumunu `ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION` ile duyuran oynatıcılara `android.media.audiofx.Equalizer` eklenir (eğri cihaz bantlarına ara değerlenir); uygulama süreci yaşadıkça geçerlidir, oturumunu duyurmayan oynatıcılar ve efektleri engelleyen cihazlar etkilenmez. Kullanımdan kalkmış genel karışım oturumu (0) kullanılmaz | Uygulama içi her yerde; sistem geneli yalnız Android (iOS ve web bunu açıkça yazar) |
+| Podcast / RSS oynatıcı | Yalnız kullanıcının eklediği RSS 2.0 (iTunes uzantıları) ve Atom akışları — katalog ya da hazır akış **yok**; OPML içe/dışa aktarma; bölüm indirme (uygulama klasörüne, çevrimdışı dinleme), kaldığı yerden sürdürme, dinlendi işareti, 0,75–2,5× hız, 15 sn geri / 30 sn ileri | Android, iOS; web'de indirme yok ve pek çok akış CORS nedeniyle açılmaz (bildirilir) |
 
 ## İzinler
 

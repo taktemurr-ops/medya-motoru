@@ -22,6 +22,7 @@ class MediaFiles {
   static Future<int> size(String path) async => 0;
   static Future<bool> write(String path, Uint8List bytes) async => false;
   static Future<bool> exists(String path) async => false;
+  static Future<String?> getText(String url) async => null;
   static Stream<double> download(String url, String target, {String? sha256}) => const Stream<double>.empty();
   static VideoPlayerController? video(String path) => null;
   static Future<VideoPlayerController?> videoBytes(Uint8List bytes, String name) async => null;

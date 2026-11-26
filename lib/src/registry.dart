@@ -1,4 +1,4 @@
-/// Üretilmiş dosya (proto/apps/medya/mkengine.py). Fotoğraf, Video ve Ses'in 45 aracı.
+/// Üretilmiş dosya (proto/apps/medya/mkengine.py). Fotoğraf, Video ve Ses'in 48 aracı.
 library;
 
 import 'package:flutter/material.dart';
@@ -7,9 +7,12 @@ import 'package:studio_core/apps/apps.dart';
 import 'tools/ai.dart';
 import 'tools/audio.dart';
 import 'tools/design.dart';
+import 'tools/equalizer.dart';
+import 'tools/idphoto.dart';
 import 'tools/music.dart';
 import 'tools/photo.dart';
 import 'tools/player.dart';
+import 'tools/podcast_player.dart';
 import 'tools/screen_rec.dart';
 import 'tools/vault.dart';
 import 'tools/video.dart';
@@ -476,6 +479,36 @@ final List<AppTool> medyaTools = [
     category: 'video',
     keywords: const ['screen', 'record', 'recorder', 'capture', 'mp4'],
     builder: (context, t) => ScreenRecorderTool(t),
+  ),
+  AppTool(
+    id: 'uyg-vesikalik-fotograf',
+    title: kMedyaTitle['uyg-vesikalik-fotograf']!,
+    tagline: kMedyaTag['uyg-vesikalik-fotograf']!,
+    icon: Icons.badge_rounded,
+    color: const Color(0xFF4FC3F7),
+    category: 'photo',
+    keywords: const ['passport', 'visa', 'biometric', 'id photo', 'vesikalık', 'biyometrik'],
+    builder: (context, t) => IdPhotoTool(t),
+  ),
+  AppTool(
+    id: 'uyg-ekolayzir',
+    title: kMedyaTitle['uyg-ekolayzir']!,
+    tagline: kMedyaTag['uyg-ekolayzir']!,
+    icon: Icons.equalizer_rounded,
+    color: const Color(0xFFAB47BC),
+    category: 'audio',
+    keywords: const ['equalizer', 'eq', 'bass', 'boost', 'ekolayzer'],
+    builder: (context, t) => EqualizerTool(t),
+  ),
+  AppTool(
+    id: 'uyg-podcast-oynatici',
+    title: kMedyaTitle['uyg-podcast-oynatici']!,
+    tagline: kMedyaTag['uyg-podcast-oynatici']!,
+    icon: Icons.rss_feed_rounded,
+    color: const Color(0xFFFF7043),
+    category: 'audio',
+    keywords: const ['podcast', 'rss', 'opml', 'feed'],
+    builder: (context, t) => PodcastPlayerTool(t),
   ),
 ];
 

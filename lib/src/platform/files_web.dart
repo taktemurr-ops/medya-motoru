@@ -43,6 +43,17 @@ class MediaFiles {
   static Future<int> size(String path) async => 0;
   static Future<bool> write(String path, Uint8List bytes) async => false;
   static Future<bool> exists(String path) async => false;
+  /// Metin indirir (podcast akışı). Tarayıcıda yalnız CORS izin veren sunucular.
+  static Future<String?> getText(String url) async {
+    try {
+      final r = await web.window.fetch(url.toJS).toDart;
+      if (!r.ok) return null;
+      return (await r.text().toDart).toDart;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Stream<double> download(String url, String target, {String? sha256}) => const Stream<double>.empty();
   static VideoPlayerController? video(String path) => null;
 

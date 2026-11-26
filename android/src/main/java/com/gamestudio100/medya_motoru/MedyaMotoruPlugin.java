@@ -457,6 +457,16 @@ public class MedyaMotoruPlugin implements FlutterPlugin, MethodChannel.MethodCal
           result.success(ScreenRecordService.status());
           break;
         }
+        case "eqSystem": {
+          final Object on = call.argument("on");
+          final Object curve = call.argument("curve");
+          result.success(SystemEq.set(context, Boolean.TRUE.equals(on), curve instanceof List ? (List<?>) curve : null));
+          break;
+        }
+        case "eqSessions": {
+          result.success(SystemEq.sessions());
+          break;
+        }
         case "openSoundSettings": {
           final Intent i = new Intent(Settings.ACTION_SOUND_SETTINGS);
           i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

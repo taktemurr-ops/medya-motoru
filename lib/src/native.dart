@@ -108,6 +108,17 @@ class MedyaNative {
 
   static Future<bool> openSoundSettings() => _ok('openSoundSettings', const {});
 
+  // ------------------------------------------------------------ sistem eşitleyicisi (Android)
+
+  /// Android: ses oturumunu duyuran oynatıcılara (ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION)
+  /// eşitleyici uygular; [curve] 20 Hz–20 kHz arası 31 log noktalı eğri (dB).
+  /// Uygulama süreci yaşadıkça geçerlidir. iOS/web: false.
+  static Future<bool> eqSystem(bool on, List<double> curve) =>
+      _ok('eqSystem', {'on': on, 'curve': curve});
+
+  /// Etkin sistem eşitleyicisi oturumu sayısı (Android).
+  static Future<int> eqSessions() async => (await _call<int>('eqSessions', const {})) ?? 0;
+
   // ------------------------------------------------------------ ekran kaydı (Android)
 
   /// Ekran kaydını başlatır: sistem izin penceresi (MediaProjection) açılır,

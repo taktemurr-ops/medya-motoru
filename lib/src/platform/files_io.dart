@@ -2,6 +2,7 @@
 /// paylaşım menüsüne (share_plus) gider. Geniş depolama izni gerekmez.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -172,6 +173,27 @@ class MediaFiles {
       return await File(path).exists();
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Metin indirir (podcast akışı, OPML): en çok 8 MB, 25 sn zaman aşımı.
+  static Future<String?> getText(String url) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    try {
+      final req = await client.getUrl(Uri.parse(url));
+      req.headers.set(HttpHeaders.acceptHeader, 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*');
+      final res = await req.close().timeout(const Duration(seconds: 25));
+      if (res.statusCode != 200) return null;
+      final bytes = <int>[];
+      await for (final chunk in res.timeout(const Duration(seconds: 25))) {
+        bytes.addAll(chunk);
+        if (bytes.length > 8 * 1024 * 1024) return null;
+      }
+      return utf8.decode(bytes, allowMalformed: true);
+    } catch (_) {
+      return null;
+    } finally {
+      client.close(force: true);
     }
   }
 
