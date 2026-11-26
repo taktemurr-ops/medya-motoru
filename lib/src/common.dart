@@ -18,6 +18,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:studio_core/app/studio_ui.dart';
 import 'package:studio_core/apps/apps.dart';
 
 import 'dsp/audio.dart';
@@ -63,20 +64,30 @@ class Choice<T> extends StatelessWidget {
   final ValueChanged<T> onChanged;
   const Choice({super.key, required this.values, required this.labels, required this.selected, required this.onChanged});
 
+  /// Onaylı tasarımın hap çipleri (seçili olan vurgu renginde).
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: SegmentedButton<T>(
-          showSelectedIcon: false,
-          segments: [
-            for (var i = 0; i < values.length; i++) ButtonSegment<T>(value: values[i], label: Text(labels[i])),
-          ],
-          selected: {selected},
-          onSelectionChanged: (s) => onChanged(s.first),
-        ),
+        child: Row(children: [
+          for (var i = 0; i < values.length; i++)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Center(
+                  widthFactor: 1,
+                  child: StudioPill(
+                    label: labels[i],
+                    selected: values[i] == selected,
+                    onTap: () => onChanged(values[i]),
+                  ),
+                ),
+              ),
+            ),
+        ]),
       ),
     );
   }
@@ -101,7 +112,7 @@ class ChipsRow<T> extends StatelessWidget {
           for (final v in values)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ChoiceChip(label: Text(label(v)), selected: v == selected, onSelected: (_) => onChanged(v)),
+              child: Center(child: StudioPill(label: label(v), selected: v == selected, onTap: () => onChanged(v))),
             ),
         ],
       ),
@@ -175,9 +186,6 @@ class AppTextField extends StatelessWidget {
         style: const TextStyle(color: Colors.white, fontSize: 17),
         decoration: InputDecoration(
           labelText: label,
-          filled: true,
-          fillColor: Colors.white.withValues(alpha: 0.06),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -221,20 +229,20 @@ class PickPrompt extends StatelessWidget {
   const PickPrompt({super.key, required this.label, required this.icon, this.onTap});
 
   @override
-  Widget build(BuildContext context) => AppPanel(
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 36),
-            child: Column(children: [
-              Icon(icon, size: 56, color: AppLook.of(context).accent),
-              const SizedBox(height: 10),
-              Text(label, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-            ]),
-          ),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final look = StudioLook.of(context);
+    return StudioPanel(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 30),
+      child: Column(children: [
+        StudioIconBadge(icon, color: look.accent, size: 64),
+        const SizedBox(height: 12),
+        Text(label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
 }
 
 /// ui.Image önizlemesi (isteğe bağlı renk matrisiyle).

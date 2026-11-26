@@ -14,6 +14,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
+import 'package:studio_core/app/studio_ui.dart';
 import 'package:studio_core/apps/apps.dart';
 
 import '../common.dart';
@@ -152,10 +153,13 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
   Future<void> _play(String f) => showDialog<void>(
         context: context,
         builder: (c) => Dialog(
-          backgroundColor: Colors.black,
+          clipBehavior: Clip.antiAlias,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            VideoPreview(f),
-            TextButton(onPressed: () => Navigator.pop(c), child: Text(t.core('ok'))),
+            ColoredBox(color: Colors.black, child: VideoPreview(f)),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: StudioButton(label: t.core('ok'), icon: Icons.check_rounded, onPressed: () => Navigator.pop(c)),
+            ),
           ]),
         ),
       );
@@ -164,6 +168,7 @@ class _ScreenRecState extends State<ScreenRecorderTool> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        icon: const Icon(Icons.delete_forever_rounded, color: StudioLook.bad, size: 40),
         content: Text(L(t, 'delete_item_confirm')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: Text(t.core('cancel'))),
