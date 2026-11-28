@@ -462,9 +462,20 @@ Future<Uint8List> jpgOf(Rgba r, {int quality = 90}) => compute(_encodeJpg, (r, q
 Future<Uint8List> pngOfRgba(Rgba r) => compute(_encodePng, r);
 
 /// Kaydeder ve sonucu kısa mesajla bildirir.
+/// Galeriye kaydedildiyse kısa mesajda "Paylaş" düğmesi de çıkar (piyasadaki
+/// düzenleyiciler gibi kaydet → paylaş tek adımda).
 Future<void> saveImage(BuildContext context, ToolContext t, Uint8List bytes, String name) async {
   final ok = await MediaFiles.saveImage(bytes, name);
-  if (context.mounted) snack(context, L(t, ok ? 'saved' : 'save_failed'));
+  if (!context.mounted) return;
+  if (!ok) return snack(context, L(t, 'save_failed'));
+  final mime = name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+  ScaffoldMessenger.maybeOf(context)
+    ?..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(L(t, 'saved')),
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(label: L(t, 'share'), onPressed: () => MediaFiles.shareBytes(bytes, name, mime)),
+    ));
 }
 
 Future<void> saveFile(BuildContext context, ToolContext t, Uint8List bytes, String name, String mime) async {
